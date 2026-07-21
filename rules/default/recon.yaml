@@ -1,0 +1,46 @@
+# RECON_* rules — owned by Dev C (Policy & Deception), reviewed via PR.
+# Schema: rules/schema/rule.schema.json
+# Each `then.action` must match a name registered in
+# adam/deception/catalogue.py, or the engine will raise at dispatch time.
+
+- id: RULE-014
+  version: "1.0.3"
+  description: >
+    Malware performing repeated, failed domain-controller reconnaissance
+    at high confidence gets a fake DC spawned into the environment.
+  when:
+    intent: RECON_DOMAIN_CONTROLLER
+    confidence_gte: 0.75
+    custom: "predicates.repeated_ldap_failure"
+  then:
+    action: SPAWN_FAKE_DC_ARTIFACTS
+    priority: 80
+    parameters:
+      domain_name: "CORP.LOCAL"
+      dc_hostname: "DC01"
+      netbios: "CORP"
+      populate_sysvol: true
+  budget:
+    max_per_session: 1
+    cooldown_seconds: 30
+
+- id: RULE-015
+  version: "1.0.0"
+  description: >
+    Lower-confidence domain recon: still worth a lighter-weight response,
+    but budgeted separately from RULE-014 so the two don't compete.
+  when:
+    intent: RECON_DOMAIN_CONTROLLER
+    confidence_gte: 0.50
+    confidence_lte: 0.74
+  then:
+    action: SPAWN_FAKE_DC_ARTIFACTS
+    priority: 40
+    parameters:
+      domain_name: "CORP.LOCAL"
+      dc_hostname: "DC01"
+      netbios: "CORP"
+      populate_sysvol: false
+  budget:
+    max_per_session: 1
+    cooldown_seconds: 60
