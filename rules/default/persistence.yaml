@@ -5,6 +5,7 @@
   when:
     intent: PERSIST_RUN_KEY
     confidence_gte: 0.70
+    custom: "predicates.distinct_registry_keys_over"
   then:
     action: PLANT_DECOY_RUN_KEY
     priority: 70

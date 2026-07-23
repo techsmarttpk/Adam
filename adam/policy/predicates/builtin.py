@@ -25,3 +25,9 @@ def repeated_ldap_failure(event: SemanticEvent, _context: SessionContextProtocol
 def single_process_actor(event: SemanticEvent, _context: SessionContextProtocol) -> bool:
     """True if the event's evidence trail implicates exactly one process."""
     return bool(event.actor and event.actor.pid > 0)
+
+@predicate("distinct_registry_keys_over")
+def distinct_registry_keys_over(event: SemanticEvent, _context: SessionContextProtocol) -> bool:
+    """True if the event's evidence trail implicates over 5 distinct registry keys."""
+    distinct_keys = event.features.get("distinct_registry_keys", 0)
+    return distinct_keys > 5
