@@ -30,8 +30,8 @@ class DeceptionEngine(IDeceptionEngine):
         raise NotImplementedError("Use execute_async — all guest ops are async (C5)")
 
     async def execute_async(self, decision: PolicyDecision) -> MutationResult:
-        if decision.action is None or decision.verdict == Verdict.DRY_RUN:
-            # DRY_RUN or a suppressed verdict slipped through — nothing to do.
+        if decision.action is None or decision.action == "LOG_ONLY" or decision.verdict == Verdict.DRY_RUN:
+            # DRY_RUN, LOG_ONLY, or a suppressed verdict slipped through — nothing to do.
             return MutationResult(
                 mutation_id=f"skip_{decision.decision_id}",
                 session_id=decision.session_id,
