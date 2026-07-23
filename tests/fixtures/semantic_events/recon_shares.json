@@ -1,0 +1,25 @@
+{
+  "semantic_id": "sem_01J8X4K3A1",
+  "session_id": "sess_test_0001",
+  "correlation_id": "corr_01J8X4K2M9",
+  "confidence": 0.9,
+  "severity": "MEDIUM",
+  "window_start": "2026-07-21T14:32:11.401220Z",
+  "window_end": "2026-07-21T14:32:13.902441Z",
+  "actor": {
+    "pid": 4812,
+    "image": "C:\\Users\\analyst\\AppData\\Local\\Temp\\sample.exe",
+    "guid": "{a1b2c3d4-0000-0000-0000-000000000001}"
+  },
+  "evidence": [
+    "raw_01J8X4K2M9P3QR7T"
+  ],
+  "attck": {
+    "tactic": "TA0007",
+    "technique": "T1018"
+  },
+  "detector": "DummyDetector",
+  "features": {},
+  "caused_by_mutation": null,
+  "intent": "RECON_NETWORK_SHARES"
+}
