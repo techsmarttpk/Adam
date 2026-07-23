@@ -73,6 +73,17 @@ class FakeDomainControllerDeception(DeceptionPrimitive):
         )
         return score, notes
 
+    async def revert_async(self, mutation: MutationResult) -> MutationResult:
+        for change in reversed(mutation.changes):
+            if change.kind == ChangeKind.REGISTRY:
+                await self._channel.apply_mutation(change.kind.value, change.target, "DELETE", None)
+            elif change.kind == ChangeKind.NETWORK:
+                await self._channel.apply_mutation(change.kind.value, change.target, "UNRESPOND", None)
+            elif change.kind == ChangeKind.FILE:
+                await self._channel.apply_mutation(change.kind.value, change.target, "DELETE", None)
+        mutation.status = MutationStatus.REVERTED
+        return mutation
+
 
 @register_primitive("PLANT_DECOY_RUN_KEY")
 class PlantDecoyRunKey(DeceptionPrimitive):
