@@ -28,7 +28,10 @@ class MountFakeNetworkShare(DeceptionPrimitive):
         ]
 
     def _plausibility(self, parameters: dict[str, Any]) -> tuple[float, str]:
-        return 0.8, "Mounted fake network share"
+        ts_score = score_timestamp_consistency(is_post_boot_write=True)
+        name_score = score_naming_consistency(matches_locale_convention=True)
+        score = combine(ts_score, name_score)
+        return score, "Mounted fake network share"
 
     async def revert_async(self, mutation: MutationResult) -> MutationResult:
         for change in reversed(mutation.changes):
