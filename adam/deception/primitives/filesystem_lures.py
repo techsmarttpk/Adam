@@ -36,3 +36,37 @@ class PlantDecoyDocuments(DeceptionPrimitive):
             await self._channel.apply_mutation(change.kind.value, change.target, "DELETE", None)
         mutation.status = MutationStatus.REVERTED
         return mutation
+
+
+@register_primitive("PLANT_DECOY_WALLET")
+class PlantDecoyWallet(DeceptionPrimitive):
+    name = "PlantDecoyWallet"
+    version = "1.0"
+
+    async def _build_changes(self, parameters: dict[str, Any]) -> list[Change]:
+        return [
+            Change(
+                kind=ChangeKind.FILE,
+                target=r"C:\Users\Admin\AppData\Roaming\Bitcoin\wallet.dat",
+                operation="CREATE",
+                value="size=131072,timestamp=1000",
+            ),
+            Change(
+                kind=ChangeKind.FILE,
+                target=r"C:\Users\Admin\AppData\Roaming\Ethereum\keystore\utc_wallet.json",
+                operation="CREATE",
+                value="size=4096,timestamp=1050",
+            ),
+        ]
+
+    def _plausibility(self, parameters: dict[str, Any]) -> tuple[float, str]:
+        ts_score = score_timestamp_consistency(is_post_boot_write=False)
+        name_score = score_naming_consistency(matches_locale_convention=True)
+        score = combine(ts_score, name_score)
+        return score, "Fake cryptocurrency wallet files planted with realistic sizes and timestamps"
+
+    async def revert_async(self, mutation: MutationResult) -> MutationResult:
+        for change in reversed(mutation.changes):
+            await self._channel.apply_mutation(change.kind.value, change.target, "DELETE", None)
+        mutation.status = MutationStatus.REVERTED
+        return mutation

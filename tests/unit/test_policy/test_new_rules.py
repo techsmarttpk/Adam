@@ -20,7 +20,7 @@ def test_new_rules_fire_correctly():
         ("recon_vm.json", "RULE-017", "HIDE_VM_ARTIFACTS"),
         ("recon_shares.json", "RULE-018", "MOUNT_FAKE_NETWORK_SHARE"),
         ("cred_browser.json", "RULE-019", "PLANT_DECOY_DOCUMENTS"),
-        ("cred_wallet.json", "RULE-020", "PLANT_DECOY_DOCUMENTS"),
+        ("cred_wallet.json", "RULE-020", "PLANT_DECOY_WALLET"),
         ("persist_run_key.json", "RULE-021", "PLANT_DECOY_RUN_KEY"),
         ("evasion.json", "RULE-022", "LOG_ONLY"),
     ]
