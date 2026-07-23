@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Any
 
 from adam.contracts.enums import ChangeKind, MutationStatus
-from adam.contracts.mutation import Change
+from adam.contracts.mutation import Change, MutationResult
 from adam.deception.catalogue import register_primitive
 from adam.deception.plausibility import combine, score_naming_consistency, score_timestamp_consistency
 from adam.deception.primitives.base import DeceptionPrimitive
@@ -107,7 +107,7 @@ class PlantDecoyRunKey(DeceptionPrimitive):
         return score, "Planted decoy run key"
 
     async def revert_async(self, mutation: MutationResult) -> MutationResult:
-        for change in mutation.changes:
+        for change in reversed(mutation.changes):
             if change.kind == ChangeKind.REGISTRY:
                 await self._channel.apply_mutation(change.kind.value, change.target, "DELETE", None)
         mutation.status = MutationStatus.REVERTED
