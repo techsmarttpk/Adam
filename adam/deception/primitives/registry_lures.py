@@ -72,3 +72,29 @@ class FakeDomainControllerDeception(DeceptionPrimitive):
             "could detect this."
         )
         return score, notes
+
+
+@register_primitive("PLANT_DECOY_RUN_KEY")
+class PlantDecoyRunKey(DeceptionPrimitive):
+    name = "PlantDecoyRunKey"
+    version = "1.0"
+
+    async def _build_changes(self, parameters: dict[str, Any]) -> list[Change]:
+        return [
+            Change(
+                kind=ChangeKind.REGISTRY,
+                target=r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run",
+                operation="SET",
+                value="decoy.exe"
+            )
+        ]
+
+    def _plausibility(self, parameters: dict[str, Any]) -> tuple[float, str]:
+        return 0.8, "Planted decoy run key"
+
+    async def revert_async(self, mutation: MutationResult) -> MutationResult:
+        for change in mutation.changes:
+            if change.kind == ChangeKind.REGISTRY:
+                await self._channel.apply_mutation(change.kind.value, change.target, "DELETE", None)
+        mutation.status = MutationStatus.REVERTED
+        return mutation

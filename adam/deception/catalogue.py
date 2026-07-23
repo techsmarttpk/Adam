@@ -36,6 +36,14 @@ def get_primitive_class(action_name: str) -> Type[DeceptionPrimitive]:
         ) from exc
 
 
-# Import primitive modules so their @register_primitive decorators run.
-# Add one import per new primitive file — never a growing if/elif chain.
-from adam.deception.primitives import registry_lures  # noqa: E402,F401
+import importlib
+import pkgutil
+import adam.deception.primitives
+
+def _load_all_primitives() -> None:
+    package = adam.deception.primitives
+    prefix = package.__name__ + "."
+    for _, module_name, _ in pkgutil.iter_modules(package.__path__, prefix):
+        importlib.import_module(module_name)
+
+_load_all_primitives()
