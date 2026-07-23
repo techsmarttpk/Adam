@@ -14,7 +14,7 @@ this class only needs a bus-agnostic execute() method to stay unit-testable.
 
 from __future__ import annotations
 
-from adam.contracts.enums import MutationStatus
+from adam.contracts.enums import MutationStatus, Verdict
 from adam.contracts.interfaces import IDeceptionEngine
 from adam.contracts.mutation import MutationResult
 from adam.contracts.policy_decision import PolicyDecision
@@ -30,7 +30,7 @@ class DeceptionEngine(IDeceptionEngine):
         raise NotImplementedError("Use execute_async — all guest ops are async (C5)")
 
     async def execute_async(self, decision: PolicyDecision) -> MutationResult:
-        if decision.action is None:
+        if decision.action is None or decision.verdict == Verdict.DRY_RUN:
             # DRY_RUN or a suppressed verdict slipped through — nothing to do.
             return MutationResult(
                 mutation_id=f"skip_{decision.decision_id}",
