@@ -41,3 +41,31 @@ class MountFakeNetworkShare(DeceptionPrimitive):
                 await self._channel.apply_mutation(change.kind.value, change.target, "UNMOUNT", None)
         mutation.status = MutationStatus.REVERTED
         return mutation
+
+
+@register_primitive("FABRICATE_C2_RESPONSE")
+class FabricateC2Response(DeceptionPrimitive):
+    name = "FabricateC2Response"
+    version = "1.0"
+
+    async def _build_changes(self, parameters: dict[str, Any]) -> list[Change]:
+        return [
+            Change(
+                kind=ChangeKind.NETWORK,
+                target="http://c2.baddomain.org/beacon",
+                operation="RESPOND",
+                value="HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\n\r\nfake_c2_payload",
+            )
+        ]
+
+    def _plausibility(self, parameters: dict[str, Any]) -> tuple[float, str]:
+        ts_score = score_timestamp_consistency(is_post_boot_write=True)
+        name_score = score_naming_consistency(matches_locale_convention=True)
+        score = combine(ts_score, name_score)
+        return score, "Fabricated C2 beacon network response"
+
+    async def revert_async(self, mutation: MutationResult) -> MutationResult:
+        for change in reversed(mutation.changes):
+            await self._channel.apply_mutation(change.kind.value, change.target, "UNRESPOND", None)
+        mutation.status = MutationStatus.REVERTED
+        return mutation

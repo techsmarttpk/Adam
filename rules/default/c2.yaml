@@ -1,0 +1,13 @@
+- id: RULE-023
+  version: "1.0.0"
+  description: >
+    C2 beaconing detected -> fabricate fake C2 response
+  when:
+    intent: C2_BEACON
+    confidence_gte: 0.70
+  then:
+    action: FABRICATE_C2_RESPONSE
+    priority: 85
+  budget:
+    max_per_session: 1
+    cooldown_seconds: 60
