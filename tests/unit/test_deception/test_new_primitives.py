@@ -2,7 +2,19 @@ import pytest
 from unittest.mock import AsyncMock
 from adam.contracts.mutation import MutationResult
 from adam.contracts.enums import MutationStatus
-from adam.deception.primitives.process_lures import SimulateAVPresence, AccelerateSystemClock
+from adam.deception.primitives.process_lures import SimulateAVPresence, AccelerateSystemClock, SpawnDecoyProcesses
+
+@pytest.mark.asyncio
+async def test_spawn_decoy_processes():
+    channel = AsyncMock()
+    prim = SpawnDecoyProcesses(channel)
+    mut = await prim.apply_async("sess", "corr", "dec", {})
+    assert mut.status == MutationStatus.APPLIED
+    assert len(mut.changes) == 2
+    
+    rev = await prim.revert_async(mut)
+    assert rev.status == MutationStatus.REVERTED
+    assert channel.apply_mutation.call_count == 4
 
 @pytest.mark.asyncio
 async def test_accelerate_system_clock():

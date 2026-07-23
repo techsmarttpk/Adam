@@ -76,3 +76,37 @@ class AccelerateSystemClock(DeceptionPrimitive):
             await self._channel.apply_mutation(change.kind.value, change.target, "RESET", "resync_host_time")
         mutation.status = MutationStatus.REVERTED
         return mutation
+
+
+@register_primitive("SPAWN_DECOY_PROCESSES")
+class SpawnDecoyProcesses(DeceptionPrimitive):
+    name = "SpawnDecoyProcesses"
+    version = "1.0"
+
+    async def _build_changes(self, parameters: dict[str, Any]) -> list[Change]:
+        return [
+            Change(
+                kind=ChangeKind.PROCESS,
+                target="notepad.exe",
+                operation="CREATE",
+                value="pid=1120",
+            ),
+            Change(
+                kind=ChangeKind.PROCESS,
+                target="calc.exe",
+                operation="CREATE",
+                value="pid=2240",
+            ),
+        ]
+
+    def _plausibility(self, parameters: dict[str, Any]) -> tuple[float, str]:
+        ts_score = score_timestamp_consistency(is_post_boot_write=False)
+        name_score = score_naming_consistency(matches_locale_convention=True)
+        score = combine(ts_score, name_score)
+        return score, "Spawned benign decoy processes to spoof system uptime and debugger presence"
+
+    async def revert_async(self, mutation: MutationResult) -> MutationResult:
+        for change in reversed(mutation.changes):
+            await self._channel.apply_mutation(change.kind.value, change.target, "TERMINATE", None)
+        mutation.status = MutationStatus.REVERTED
+        return mutation

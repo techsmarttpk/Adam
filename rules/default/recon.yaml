@@ -86,3 +86,31 @@
   budget:
     max_per_session: 1
     cooldown_seconds: 60
+
+- id: RULE-025
+  version: "1.0.0"
+  description: >
+    Recon system uptime -> spawn decoy processes
+  when:
+    intent: RECON_SYSTEM_UPTIME
+    confidence_gte: 0.65
+  then:
+    action: SPAWN_DECOY_PROCESSES
+    priority: 65
+  budget:
+    max_per_session: 1
+    cooldown_seconds: 60
+
+- id: RULE-026
+  version: "1.0.0"
+  description: >
+    Recon debugger presence -> spawn decoy processes
+  when:
+    intent: RECON_DEBUGGER
+    confidence_gte: 0.65
+  then:
+    action: SPAWN_DECOY_PROCESSES
+    priority: 65
+  budget:
+    max_per_session: 1
+    cooldown_seconds: 60

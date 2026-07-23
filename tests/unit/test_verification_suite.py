@@ -220,6 +220,7 @@ async def test_apply_revert_roundtrip_all_primitives():
         "INJECT_FAKE_BROWSER_CREDS": {},
         "FABRICATE_C2_RESPONSE": {},
         "ACCELERATE_SYSTEM_CLOCK": {},
+        "SPAWN_DECOY_PROCESSES": {},
         "MOUNT_FAKE_NETWORK_SHARE": {},
         "HIDE_VM_ARTIFACTS": {},
     }
@@ -269,6 +270,7 @@ def test_plausibility_scores():
         "INJECT_FAKE_BROWSER_CREDS": {},
         "FABRICATE_C2_RESPONSE": {},
         "ACCELERATE_SYSTEM_CLOCK": {},
+        "SPAWN_DECOY_PROCESSES": {},
         "MOUNT_FAKE_NETWORK_SHARE": {},
         "HIDE_VM_ARTIFACTS": {},
     }
