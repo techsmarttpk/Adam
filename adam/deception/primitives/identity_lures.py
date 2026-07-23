@@ -25,7 +25,7 @@ class HideVMArtifacts(DeceptionPrimitive):
         return 0.9, "Masked VirtualBox artifacts"
 
     async def revert_async(self, mutation: MutationResult) -> MutationResult:
-        for change in mutation.changes:
+        for change in reversed(mutation.changes):
             await self._channel.apply_mutation(change.kind.value, change.target, "UNMASK", change.value)
         mutation.status = MutationStatus.REVERTED
         return mutation

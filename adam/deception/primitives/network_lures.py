@@ -31,7 +31,7 @@ class MountFakeNetworkShare(DeceptionPrimitive):
         return 0.8, "Mounted fake network share"
 
     async def revert_async(self, mutation: MutationResult) -> MutationResult:
-        for change in mutation.changes:
+        for change in reversed(mutation.changes):
             if change.kind == ChangeKind.REGISTRY:
                 await self._channel.apply_mutation(change.kind.value, change.target, "DELETE", None)
             elif change.kind == ChangeKind.NETWORK:

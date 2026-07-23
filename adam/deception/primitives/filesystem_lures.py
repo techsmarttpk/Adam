@@ -29,7 +29,7 @@ class PlantDecoyDocuments(DeceptionPrimitive):
         return 0.9, "Varying mtimes on decoy documents"
 
     async def revert_async(self, mutation: MutationResult) -> MutationResult:
-        for change in mutation.changes:
+        for change in reversed(mutation.changes):
             await self._channel.apply_mutation(change.kind.value, change.target, "DELETE", None)
         mutation.status = MutationStatus.REVERTED
         return mutation

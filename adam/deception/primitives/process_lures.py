@@ -31,7 +31,7 @@ class SimulateAVPresence(DeceptionPrimitive):
         return 0.8, "AV presence simulated via process and registry"
 
     async def revert_async(self, mutation: MutationResult) -> MutationResult:
-        for change in mutation.changes:
+        for change in reversed(mutation.changes):
             if change.kind == ChangeKind.PROCESS:
                 await self._channel.apply_mutation(change.kind.value, change.target, "TERMINATE", None)
             elif change.kind == ChangeKind.REGISTRY:
