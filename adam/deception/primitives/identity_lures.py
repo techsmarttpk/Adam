@@ -32,3 +32,37 @@ class HideVMArtifacts(DeceptionPrimitive):
             await self._channel.apply_mutation(change.kind.value, change.target, "UNMASK", change.value)
         mutation.status = MutationStatus.REVERTED
         return mutation
+
+
+@register_primitive("INJECT_FAKE_BROWSER_CREDS")
+class InjectFakeBrowserCreds(DeceptionPrimitive):
+    name = "InjectFakeBrowserCreds"
+    version = "1.0"
+
+    async def _build_changes(self, parameters: dict[str, Any]) -> list[Change]:
+        return [
+            Change(
+                kind=ChangeKind.FILE,
+                target=r"C:\Users\Admin\AppData\Local\Google\Chrome\User Data\Default\Login Data",
+                operation="SET",
+                value="fake_encrypted_credentials_db",
+            ),
+            Change(
+                kind=ChangeKind.REGISTRY,
+                target=r"HKCU\Software\Google\Chrome\PreferenceMACs",
+                operation="SET",
+                value="fake_pref_mac_hash",
+            ),
+        ]
+
+    def _plausibility(self, parameters: dict[str, Any]) -> tuple[float, str]:
+        ts_score = score_timestamp_consistency(is_post_boot_write=False)
+        name_score = score_naming_consistency(matches_locale_convention=True)
+        score = combine(ts_score, name_score)
+        return score, "Fabricated Chrome login data store entry"
+
+    async def revert_async(self, mutation: MutationResult) -> MutationResult:
+        for change in reversed(mutation.changes):
+            await self._channel.apply_mutation(change.kind.value, change.target, "DELETE", None)
+        mutation.status = MutationStatus.REVERTED
+        return mutation

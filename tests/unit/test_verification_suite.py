@@ -217,6 +217,7 @@ async def test_apply_revert_roundtrip_all_primitives():
         "SIMULATE_AV_PRESENCE": {},
         "PLANT_DECOY_DOCUMENTS": {},
         "PLANT_DECOY_WALLET": {},
+        "INJECT_FAKE_BROWSER_CREDS": {},
         "MOUNT_FAKE_NETWORK_SHARE": {},
         "HIDE_VM_ARTIFACTS": {},
     }
@@ -263,6 +264,7 @@ def test_plausibility_scores():
         "SIMULATE_AV_PRESENCE": {},
         "PLANT_DECOY_DOCUMENTS": {},
         "PLANT_DECOY_WALLET": {},
+        "INJECT_FAKE_BROWSER_CREDS": {},
         "MOUNT_FAKE_NETWORK_SHARE": {},
         "HIDE_VM_ARTIFACTS": {},
     }
