@@ -114,3 +114,17 @@
   budget:
     max_per_session: 1
     cooldown_seconds: 60
+
+- id: RULE-027
+  version: "1.0.0"
+  description: >
+    Recon user artifacts -> plant decoy documents
+  when:
+    intent: RECON_USER_ARTIFACTS
+    confidence_gte: 0.65
+  then:
+    action: PLANT_DECOY_DOCUMENTS
+    priority: 65
+  budget:
+    max_per_session: 1
+    cooldown_seconds: 60

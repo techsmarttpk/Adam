@@ -26,6 +26,7 @@ def test_new_rules_fire_correctly():
         ("c2_beacon.json", "RULE-023", "FABRICATE_C2_RESPONSE"),
         ("evade_sleep.json", "RULE-024", "ACCELERATE_SYSTEM_CLOCK"),
         ("recon_uptime.json", "RULE-025", "SPAWN_DECOY_PROCESSES"),
+        ("recon_user_artifacts.json", "RULE-027", "PLANT_DECOY_DOCUMENTS"),
     ]
     
     for filename, rule_id, action in test_cases:
