@@ -44,3 +44,45 @@
   budget:
     max_per_session: 1
     cooldown_seconds: 60
+
+- id: RULE-016
+  version: "1.0.0"
+  description: >
+    AV recon detection -> simulate AV presence
+  when:
+    intent: RECON_INSTALLED_AV
+    confidence_gte: 0.70
+  then:
+    action: SIMULATE_AV_PRESENCE
+    priority: 70
+  budget:
+    max_per_session: 1
+    cooldown_seconds: 30
+
+- id: RULE-017
+  version: "1.0.0"
+  description: >
+    Virtualisation recon detection -> hide VM artifacts
+  when:
+    intent: RECON_VIRTUALISATION
+    confidence_gte: 0.65
+  then:
+    action: HIDE_VM_ARTIFACTS
+    priority: 70
+  budget:
+    max_per_session: 1
+    cooldown_seconds: 60
+
+- id: RULE-018
+  version: "1.0.0"
+  description: >
+    Network shares recon detection -> mount fake share
+  when:
+    intent: RECON_NETWORK_SHARES
+    confidence_gte: 0.70
+  then:
+    action: MOUNT_FAKE_NETWORK_SHARE
+    priority: 70
+  budget:
+    max_per_session: 1
+    cooldown_seconds: 60
