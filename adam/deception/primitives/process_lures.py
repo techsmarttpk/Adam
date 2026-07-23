@@ -41,3 +41,38 @@ class SimulateAVPresence(DeceptionPrimitive):
                 await self._channel.apply_mutation(change.kind.value, change.target, "DELETE", None)
         mutation.status = MutationStatus.REVERTED
         return mutation
+
+
+@register_primitive("ACCELERATE_SYSTEM_CLOCK")
+class AccelerateSystemClock(DeceptionPrimitive):
+    """
+    Accelerates the guest OS system time to bypass malware sleep/delay execution.
+    
+    NOTE ON REVERT: Unlike discrete file/registry changes, accelerating continuous
+    guest time cannot be undone by deleting artifacts. Reverting here means resetting
+    or resynchronizing the system clock back to real host time (or NTP sync).
+    """
+    name = "AccelerateSystemClock"
+    version = "1.0"
+
+    async def _build_changes(self, parameters: dict[str, Any]) -> list[Change]:
+        return [
+            Change(
+                kind=ChangeKind.PROCESS,
+                target="system_clock",
+                operation="SET",
+                value="fast_forward_3600s",
+            )
+        ]
+
+    def _plausibility(self, parameters: dict[str, Any]) -> tuple[float, str]:
+        ts_score = score_timestamp_consistency(is_post_boot_write=True)
+        name_score = score_naming_consistency(matches_locale_convention=True)
+        score = combine(ts_score, name_score)
+        return score, "Accelerated guest system clock to bypass sleep evasion"
+
+    async def revert_async(self, mutation: MutationResult) -> MutationResult:
+        for change in reversed(mutation.changes):
+            await self._channel.apply_mutation(change.kind.value, change.target, "RESET", "resync_host_time")
+        mutation.status = MutationStatus.REVERTED
+        return mutation

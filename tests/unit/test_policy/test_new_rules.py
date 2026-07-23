@@ -24,6 +24,7 @@ def test_new_rules_fire_correctly():
         ("persist_run_key.json", "RULE-021", "PLANT_DECOY_RUN_KEY"),
         ("evasion.json", "RULE-022", "LOG_ONLY"),
         ("c2_beacon.json", "RULE-023", "FABRICATE_C2_RESPONSE"),
+        ("evade_sleep.json", "RULE-024", "ACCELERATE_SYSTEM_CLOCK"),
     ]
     
     for filename, rule_id, action in test_cases:

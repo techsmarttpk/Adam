@@ -219,12 +219,13 @@ async def test_apply_revert_roundtrip_all_primitives():
         "PLANT_DECOY_WALLET": {},
         "INJECT_FAKE_BROWSER_CREDS": {},
         "FABRICATE_C2_RESPONSE": {},
+        "ACCELERATE_SYSTEM_CLOCK": {},
         "MOUNT_FAKE_NETWORK_SHARE": {},
         "HIDE_VM_ARTIFACTS": {},
     }
 
     inverse_ops = {
-        "SET": ["DELETE"],
+        "SET": ["DELETE", "RESET"],
         "CREATE": ["DELETE", "TERMINATE"],
         "RESPOND": ["UNRESPOND", "DELETE"],
         "MOUNT": ["UNMOUNT", "DELETE"],
@@ -267,6 +268,7 @@ def test_plausibility_scores():
         "PLANT_DECOY_WALLET": {},
         "INJECT_FAKE_BROWSER_CREDS": {},
         "FABRICATE_C2_RESPONSE": {},
+        "ACCELERATE_SYSTEM_CLOCK": {},
         "MOUNT_FAKE_NETWORK_SHARE": {},
         "HIDE_VM_ARTIFACTS": {},
     }
