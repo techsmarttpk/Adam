@@ -1,3 +1,25 @@
+# ==========================
+# ADAM Event Fusion Engine
+# ==========================
+
+# Graph processing
+networkx>=3.4
+
+# Data models
+pydantic>=2.11
+
+# Testing
+pytest>=8.3
+pytest-cov>=6.0
+
+# Formatting
+black>=25.0
+
+# Linting
+ruff>=0.12
+
+# Static type checking
+mypy>=1.16
 # Core configuration (Milestone 4 -- adam.common.config)
 pydantic>=2.7,<3
 pydantic-settings>=2.3,<3
