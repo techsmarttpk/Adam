@@ -1,0 +1,73 @@
+# config/default.toml
+#
+# Committed baseline configuration (ARCHITECTURE.md section 12.2).
+# Per-machine overrides go in config/<ADAM_ENV>.toml (e.g.
+# config/development.toml, config/production.toml -- both gitignored),
+# selected via the ADAM_ENV environment variable (defaults to
+# "development"). See adam/common/config.py for the full precedence chain.
+#
+# NEVER put secrets in this file. guest_username / guest_password are
+# intentionally absent here -- see .env.example and ARCHITECTURE.md
+# section 12.3.
+
+# Phase 5 (HTTP Guest Agent architecture) backend selector -- "vbox"
+# (default, below) keeps using [guest_tools] below via the existing
+# GuestControl-based compatibility backend. Switch to "http" only after
+# installing the guest-resident PowerShell agent (see
+# adam/sandbox/guest/agent/install.ps1 and docs/phase5-migration-guide.md)
+# -- that backend is NOT YET VALIDATED against a real VM.
+#
+# MUST stay a root-level key, i.e. placed here, before the first [table]
+# header in this file. adam.common.config.Settings.guest_backend is a
+# top-level Settings field, not a member of any section model -- a bare
+# `key = value` line placed after a [table] header (e.g. inside
+# [guest_tools]) is parsed by TOML as a member of THAT table instead, and
+# since GuestToolsSettings has no such field, Pydantic silently discards
+# it (BaseModel's default extra="ignore") rather than erroring -- exactly
+# the bug this file once shipped with: guest_backend = "http" sat inside
+# [guest_tools], Settings.guest_backend never saw it, and the runtime
+# silently fell back to its "vbox" field default despite this file
+# appearing to say "http". See
+# tests/unit/test_config.py::TestGuestBackendIsRootLevel for the
+# regression test guarding this.
+guest_backend = "http"
+
+[sandbox]
+vm_name               = "ADAM_WIN10_OFFICE"
+snapshot_name         = "clean"
+boot_timeout_s        = 60.0
+guest_ready_timeout_s = 150.0
+
+# Guest-side telemetry tools (Phase 5 -- Guest Agent). Paths are INSIDE the
+# guest VM, not on the host -- see adam/common/config.py's GuestToolsSettings
+# docstring. Sysmon itself is not configured here: it is assumed already
+# installed and running as a guest service (docs/implementation-audit.md,
+# Phase 5) -- only the event log channel it writes to is named.
+[guest_tools]
+procmon_path  = "C:\\Users\\Admin\\Downloads\\ProcessMonitor\\Procmon64.exe"
+tshark_path   = "C:\\Program Files\\Wireshark\\tshark.exe"
+sysmon_log    = "Microsoft-Windows-Sysmon/Operational"
+tshark_interface = "1"
+capture_dir   = "C:\\ADAM\\telemetry"
+
+# Only consulted when guest_backend = "http" (set above, before [sandbox] --
+# it must stay a root-level key). host/port must match
+# wherever install.ps1 bound the guest's HttpListener (default port
+# 8765); the guest's own agent.config.json is the source of truth for
+# tool paths actually used inside the guest -- procmon_path/tshark_path/
+# sysmon_log/tshark_interface/capture_dir here are HTTPGuestChannel's own
+# copy for verify_tools() reporting and MUST be kept consistent with it
+# by whoever provisions the guest image.
+[http_guest]
+# PLACEHOLDER -- 127.0.0.1 is not a real guest address. Override in
+# config/<ADAM_ENV>.toml with the guest's actual host-only-adapter IP
+# (the same address wait_for_guest_ready's own guest-reachability checks
+# resolve) before ever setting guest_backend = "http".
+host = "192.168.56.103"
+port = 8765
+request_timeout_s = 15.0
+procmon_path  = "C:\\Users\\Admin\\Downloads\\ProcessMonitor\\Procmon64.exe"
+tshark_path   = "C:\\Program Files\\Wireshark\\tshark.exe"
+sysmon_log    = "Microsoft-Windows-Sysmon/Operational"
+tshark_interface = "1"
+capture_dir   = "C:\\ADAM\\telemetry"
