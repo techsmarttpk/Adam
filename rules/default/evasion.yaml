@@ -1,0 +1,27 @@
+- id: RULE-022
+  version: "1.0.0"
+  description: >
+    Sandbox evasion detected
+  when:
+    intent: EVADE_SANDBOX_DETECTED
+    confidence_gte: 0.0
+  then:
+    action: LOG_ONLY
+    priority: 90
+  budget:
+    max_per_session: 1
+    cooldown_seconds: 30
+
+- id: RULE-024
+  version: "1.0.0"
+  description: >
+    Sleep skip evasion attempt -> accelerate system clock
+  when:
+    intent: EVADE_SLEEP_SKIP
+    confidence_gte: 0.70
+  then:
+    action: ACCELERATE_SYSTEM_CLOCK
+    priority: 80
+  budget:
+    max_per_session: 1
+    cooldown_seconds: 30

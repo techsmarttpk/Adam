@@ -1,0 +1,52 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ADAM Policy Rule",
+  "type": "object",
+  "required": ["id", "when", "then"],
+  "properties": {
+    "id": { "type": "string", "pattern": "^RULE-[0-9]+$" },
+    "version": { "type": "string" },
+    "description": { "type": "string" },
+    "when": {
+      "type": "object",
+      "properties": {
+        "intent": { "type": "string" },
+        "confidence_gte": { "type": "number", "minimum": 0, "maximum": 1 },
+        "confidence_lte": { "type": "number", "minimum": 0, "maximum": 1 },
+        "severity": { "type": "string" },
+        "custom": { "type": "string" },
+        "feature_equals": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["path", "equals"],
+            "properties": {
+              "path": { "type": "string" },
+              "equals": {}
+            }
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "then": {
+      "type": "object",
+      "required": ["action", "priority"],
+      "properties": {
+        "action": { "type": "string" },
+        "priority": { "type": "integer" },
+        "parameters": { "type": "object" }
+      },
+      "additionalProperties": false
+    },
+    "budget": {
+      "type": "object",
+      "properties": {
+        "max_per_session": { "type": "integer", "minimum": 0 },
+        "cooldown_seconds": { "type": "number", "minimum": 0 }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

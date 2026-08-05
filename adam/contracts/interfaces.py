@@ -1,45 +1,80 @@
 """
 adam/contracts/interfaces.py
 
-Every ABC/Protocol Dev A's modules expose, in one place, per
-ARCHITECTURE.md section 9's folder hierarchy comment ("every ABC/Protocol
-in one place") and docs/dev-a-environment-and-roadmap.md's Phase 2 file
-list, which scopes this file to `ICollector` and `ISandboxController` only.
-`IFusionEngine`, `ISemanticDetector`, etc. (section 5.4 onward) belong to
-Dev B/C/D and are added here by their own Phase-2-equivalent PRs.
+Every ABC/Protocol in the whole project, in one place, per ARCHITECTURE.md
+section 9's folder hierarchy comment ("every ABC/Protocol in one place").
 
-Both Protocols are declared `@runtime_checkable` so `isinstance(obj, ...)`
-works for quick conformance checks (used by tests and by
-adam/sandbox/controller.py's own verification script), while static callers
-still get full `mypy --strict` structural checking against the Protocol.
+Merge note (nived-dev -> pranav-dev): this file previously existed as two
+independently-scoped halves -- Dev A's `ICollector` / `ISandboxController`
+boundary (section 5.2/5.3, docs/dev-a-environment-and-roadmap.md's Phase 2
+file list) and Dev C's Policy/Deception boundary (section 5.5/5.6, section
+11.1), the latter shipped as a "LOCAL STUB... the real interfaces.py holds
+every ABC in the whole project in one place; this file only has the ones
+relevant to your two modules." This is that reconciliation.
+
+Dev A's Protocols
+------------------
+Both `ICollector` and `ISandboxController` are declared `@runtime_checkable`
+so `isinstance(obj, ...)` works for quick conformance checks (used by tests
+and by adam/sandbox/controller.py's own verification script), while static
+callers still get full `mypy --strict` structural checking against the
+Protocol.
 
 MutationRequest / MutationResult / ArtifactRef
 ------------------------------------------------
 `ISandboxController.apply_mutation()` and `.collect_artifacts()` reference
 types that ARCHITECTURE.md section 7 does not fully specify for Dev A's
-scope: `MutationResult`'s wire shape belongs to section 7.5 (owned by Dev C,
-the Deception Engine developer, per section 10.1), and `MutationRequest` /
-`ArtifactRef` are not named as JSON contracts anywhere in the document at
-all. Per the roadmap's own note ("apply_mutation is called by Dev C's
-Deception Engine later, but the interface belongs here since your module
-implements it"), minimal versions are defined below so the Protocol is
-syntactically complete and `SandboxController` can be checked against it
-now. These three are explicitly NOT frozen the way `Envelope`/`RawEvent`/
-`AnalysisSession` are -- flag for confirmation (and likely supersession by
-Dev C's own section 7.5 model) in the Phase 2 all-four-developer review per
-section 10.2.
+scope: `MutationRequest` / `ArtifactRef` are not named as JSON contracts
+anywhere in the document at all, so minimal versions are defined below so
+the Protocol is syntactically complete. `MutationResult`'s wire shape
+belongs to section 7.5 (owned by Dev C, the Deception Engine developer, per
+section 10.1) -- this file previously carried its own provisional copy of
+that model, kept in sync by hand. As of this merge, that inline copy is
+removed in favour of importing Dev C's canonical `adam.contracts.mutation
+.MutationResult` directly (re-exported below under the same name), since
+Dev C's model is the one actually constructed by real code
+(`adam/deception/engine.py`, `adam/deception/primitives/base.py`) --
+`SandboxController.apply_mutation()` itself is still an unimplemented stub
+(`NotImplementedError`, awaiting the Deception Engine per
+docs/remaining-work-plan.md) and never constructed the old inline model, so
+this swap changes no runtime behaviour anywhere that actually runs today.
+
+Dev C's ABCs
+------------
+Consumers must depend on these interfaces, never on the concrete
+PolicyEngine / DeceptionEngine classes (P3, section 11.2). This lets the
+API composition root (adam/api/deps.py) bind an interface to an
+implementation without importing internals, and lets Fusion's tests fake a
+policy engine without importing the real one either.
 """
 
 from __future__ import annotations
 
+from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
-from datetime import datetime
 from typing import Any, Protocol, runtime_checkable
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from adam.contracts.mutation import MutationResult
+from adam.contracts.policy_decision import PolicyDecision
 from adam.contracts.raw_event import RawEvent
+from adam.contracts.semantic_event import SemanticEvent
 from adam.contracts.session import SampleRef
+
+__all__ = [
+    "MutationRequest",
+    "MutationResult",
+    "ArtifactRef",
+    "ICollector",
+    "ISandboxController",
+    "IPolicyEngine",
+    "IRuleLoader",
+    "IPredicate",
+    "IDeceptionEngine",
+    "IDeception",
+    "SessionContextProtocol",
+]
 
 
 class MutationRequest(BaseModel):
@@ -55,33 +90,6 @@ class MutationRequest(BaseModel):
     decision_id: str = Field(min_length=1)
     primitive: str = Field(min_length=1)
     parameters: dict[str, Any] = Field(default_factory=dict)
-
-
-class MutationResult(BaseModel):
-    """
-    Return type of `ISandboxController.apply_mutation()`. Matches the wire
-    shape in ARCHITECTURE.md section 7.5 (`DeceptionAction`/`MutationResult`)
-    field-for-field, since section 7.5's example is fully specified even
-    though ownership of that section belongs to Dev C -- see module
-    docstring for why this copy is provisional.
-    """
-
-    model_config = ConfigDict(frozen=True, extra="forbid")
-
-    mutation_id: str = Field(min_length=1)
-    session_id: str = Field(min_length=1)
-    correlation_id: str = Field(min_length=1)
-    decision_id: str = Field(min_length=1)
-    primitive: str = Field(min_length=1)
-    status: str = Field(min_length=1)  # APPLIED | PARTIAL | FAILED | REVERTED | SKIPPED
-    applied_at: datetime
-    latency_ms: float = Field(ge=0)
-    changes: list[dict[str, Any]] = Field(default_factory=list)
-    plausibility_score: float | None = Field(default=None, ge=0, le=1)
-    plausibility_notes: str | None = None
-    revertible: bool = False
-    causal_window_ms: int = Field(ge=0)
-    error: str | None = None
 
 
 class ArtifactRef(BaseModel):
@@ -140,7 +148,7 @@ class ISandboxController(Protocol):
 
     async def apply_mutation(self, mutation: MutationRequest) -> MutationResult:
         """
-        Applies one deception primitive inside the guest. Called by Dev C's
+        Applies one deception primitive inside the guest. Called by the
         Deception Engine (section 5.6), not by Dev A's own code -- the
         interface is declared here because SandboxController implements it
         (docs/dev-a-environment-and-roadmap.md Phase 2 note).
@@ -156,4 +164,67 @@ class ISandboxController(Protocol):
         Any state -> TEARDOWN -> COLD. Idempotent and safe to call from a
         `finally` block after any failure (section 14.4). Never raises.
         """
+        ...
+
+
+class IPolicyEngine(ABC):
+    """Pure function of (event, session context) -> decisions. No I/O (P4)."""
+
+    @abstractmethod
+    def evaluate(
+        self, event: SemanticEvent, context: "SessionContextProtocol"
+    ) -> list[PolicyDecision]:
+        ...
+
+
+class IRuleLoader(ABC):
+    @abstractmethod
+    def load(self, ruleset_path: str) -> list[dict[str, Any]]:
+        """Load and validate raw rule dicts from a ruleset directory."""
+        ...
+
+
+class IPredicate(ABC):
+    """A named, pure, side-effect-free escape hatch used inside `when.custom`."""
+
+    @abstractmethod
+    def __call__(self, event: SemanticEvent, context: "SessionContextProtocol") -> bool:
+        ...
+
+
+class IDeceptionEngine(ABC):
+    @abstractmethod
+    def execute(self, decision: PolicyDecision) -> MutationResult:
+        ...
+
+
+class IDeception(ABC):
+    """One deception primitive. Every primitive implements both directions."""
+
+    @abstractmethod
+    def apply(self, parameters: dict[str, Any]) -> MutationResult:
+        ...
+
+    @abstractmethod
+    def revert(self, mutation: MutationResult) -> MutationResult:
+        ...
+
+
+class SessionContextProtocol(ABC):
+    """
+    Minimal shape Policy needs from session context (budget consumed,
+    cooldowns, prior decisions). Passed in explicitly per ADR-004 -- never
+    held as hidden mutable state inside the engine.
+    """
+
+    @abstractmethod
+    def budget_remaining(self, rule_id: str, max_per_session: int) -> int:
+        ...
+
+    @abstractmethod
+    def cooldown_active(self, rule_id: str, cooldown_seconds: float) -> bool:
+        ...
+
+    @abstractmethod
+    def record_decision(self, decision: PolicyDecision) -> None:
         ...

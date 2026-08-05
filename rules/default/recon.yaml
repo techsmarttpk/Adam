@@ -1,0 +1,130 @@
+# RECON_* rules — owned by Dev C (Policy & Deception), reviewed via PR.
+# Schema: rules/schema/rule.schema.json
+# Each `then.action` must match a name registered in
+# adam/deception/catalogue.py, or the engine will raise at dispatch time.
+
+- id: RULE-014
+  version: "1.0.3"
+  description: >
+    Malware performing repeated, failed domain-controller reconnaissance
+    at high confidence gets a fake DC spawned into the environment.
+  when:
+    intent: RECON_DOMAIN_CONTROLLER
+    confidence_gte: 0.75
+    custom: "predicates.repeated_ldap_failure"
+  then:
+    action: SPAWN_FAKE_DC_ARTIFACTS
+    priority: 80
+    parameters:
+      domain_name: "CORP.LOCAL"
+      dc_hostname: "DC01"
+      netbios: "CORP"
+      populate_sysvol: true
+  budget:
+    max_per_session: 1
+    cooldown_seconds: 30
+
+- id: RULE-015
+  version: "1.0.0"
+  description: >
+    Lower-confidence domain recon: still worth a lighter-weight response,
+    but budgeted separately from RULE-014 so the two don't compete.
+  when:
+    intent: RECON_DOMAIN_CONTROLLER
+    confidence_gte: 0.50
+    confidence_lte: 0.74
+  then:
+    action: SPAWN_FAKE_DC_ARTIFACTS
+    priority: 40
+    parameters:
+      domain_name: "CORP.LOCAL"
+      dc_hostname: "DC01"
+      netbios: "CORP"
+      populate_sysvol: false
+  budget:
+    max_per_session: 1
+    cooldown_seconds: 60
+
+- id: RULE-016
+  version: "1.0.0"
+  description: >
+    AV recon detection -> simulate AV presence
+  when:
+    intent: RECON_INSTALLED_AV
+    confidence_gte: 0.70
+  then:
+    action: SIMULATE_AV_PRESENCE
+    priority: 70
+  budget:
+    max_per_session: 1
+    cooldown_seconds: 30
+
+- id: RULE-017
+  version: "1.0.0"
+  description: >
+    Virtualisation recon detection -> hide VM artifacts
+  when:
+    intent: RECON_VIRTUALISATION
+    confidence_gte: 0.65
+  then:
+    action: HIDE_VM_ARTIFACTS
+    priority: 70
+  budget:
+    max_per_session: 1
+    cooldown_seconds: 60
+
+- id: RULE-018
+  version: "1.0.0"
+  description: >
+    Network shares recon detection -> mount fake share
+  when:
+    intent: RECON_NETWORK_SHARES
+    confidence_gte: 0.70
+  then:
+    action: MOUNT_FAKE_NETWORK_SHARE
+    priority: 70
+  budget:
+    max_per_session: 1
+    cooldown_seconds: 60
+
+- id: RULE-025
+  version: "1.0.0"
+  description: >
+    Recon system uptime -> spawn decoy processes
+  when:
+    intent: RECON_SYSTEM_UPTIME
+    confidence_gte: 0.65
+  then:
+    action: SPAWN_DECOY_PROCESSES
+    priority: 65
+  budget:
+    max_per_session: 1
+    cooldown_seconds: 60
+
+- id: RULE-026
+  version: "1.0.0"
+  description: >
+    Recon debugger presence -> spawn decoy processes
+  when:
+    intent: RECON_DEBUGGER
+    confidence_gte: 0.65
+  then:
+    action: SPAWN_DECOY_PROCESSES
+    priority: 65
+  budget:
+    max_per_session: 1
+    cooldown_seconds: 60
+
+- id: RULE-027
+  version: "1.0.0"
+  description: >
+    Recon user artifacts -> plant decoy documents
+  when:
+    intent: RECON_USER_ARTIFACTS
+    confidence_gte: 0.65
+  then:
+    action: PLANT_DECOY_DOCUMENTS
+    priority: 65
+  budget:
+    max_per_session: 1
+    cooldown_seconds: 60

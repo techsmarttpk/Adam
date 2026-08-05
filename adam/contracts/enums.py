@@ -5,14 +5,18 @@ Every enum referenced by the frozen contract models (ARCHITECTURE.md
 section 7). This file has no dependencies beyond the stdlib -- per section
 5.1, `adam/contracts/` must not import anything from any other ADAM module.
 
-Scope note: this is Dev A's Phase 2 proposal per
-docs/dev-a-environment-and-roadmap.md ("Phase 2 -- Contracts for Your
-Slice"). It covers only the enums needed by `Envelope`, `RawEvent`,
-`AnalysisSession`, and `adam/contracts/interfaces.py`. Enums belonging to
-`SemanticEvent`, `PolicyDecision`, and `DeceptionAction`/`MutationResult`
-(section 7.3-7.5) are out of scope here -- those contracts are owned by the
-Fusion (Dev B) and Policy/Deception (Dev C) developers and are added to this
-package by their own reviewed PRs per section 10.2.
+Merge note (nived-dev -> pranav-dev): this file previously existed as two
+independent halves that never conflicted in substance, only in text --
+Dev A's `Source`/`Category`/`Arm`/`NetworkMode`/`SessionStatus` (covering
+`Envelope`/`RawEvent`/`AnalysisSession`, originally scoped per
+docs/dev-a-environment-and-roadmap.md's Phase 2) and Dev C's
+`Verdict`/`MutationStatus`/`ChangeKind` (covering `PolicyDecision`/
+`MutationResult`, section 7.4-7.5), the latter originally shipped as a
+"LOCAL STUB... reconcile with whatever Dev A/B/D land in the real
+adam/contracts/enums.py first" per that file's own note. This is that
+reconciliation: both sets share no overlapping names, so both are kept
+verbatim, unioned into the one real, jointly-owned `adam/contracts/`
+package section 10.2 always intended this file to become.
 """
 
 from __future__ import annotations
@@ -97,3 +101,33 @@ class SessionStatus(enum.Enum):
     PARTIAL = "PARTIAL"
     FAILED = "FAILED"
     ABORTED = "ABORTED"
+
+
+class Verdict(str, enum.Enum):
+    """Outcome of evaluating a PolicyDecision (section 7.4)."""
+
+    EXECUTE = "EXECUTE"
+    SUPPRESSED_BUDGET = "SUPPRESSED_BUDGET"
+    SUPPRESSED_COOLDOWN = "SUPPRESSED_COOLDOWN"
+    SUPPRESSED_CONFIDENCE = "SUPPRESSED_CONFIDENCE"
+    SUPPRESSED_CONFLICT = "SUPPRESSED_CONFLICT"
+    DRY_RUN = "DRY_RUN"
+
+
+class MutationStatus(str, enum.Enum):
+    """Outcome of applying a deception primitive (section 7.5)."""
+
+    APPLIED = "APPLIED"
+    PARTIAL = "PARTIAL"
+    FAILED = "FAILED"
+    REVERTED = "REVERTED"
+    SKIPPED = "SKIPPED"
+
+
+class ChangeKind(str, enum.Enum):
+    """The category of a single environmental change inside a MutationResult."""
+
+    REGISTRY = "REGISTRY"
+    FILE = "FILE"
+    NETWORK = "NETWORK"
+    PROCESS = "PROCESS"

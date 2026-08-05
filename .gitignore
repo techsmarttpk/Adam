@@ -43,3 +43,5 @@ samples/*
 *.pcap
 *.evtx
 *.pml
+
+telemetry_diagnostic.log
