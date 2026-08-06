@@ -318,8 +318,17 @@ database directly. Know that a Policy Engine exists.
 async, every method has a timeout from config, and `teardown()` is idempotent
 and safe to call from a `finally` block after any failure. The controller is a
 finite state machine with explicit states (`COLD`, `RESTORING`, `BOOTING`,
-`READY`, `ARMED`, `RUNNING`, `TEARDOWN`, `FAILED`) and illegal transitions raise
-`SandboxStateError`.
+`READY`, `ARMED`, `RUNNING`, `COMPLETED`, `TEARDOWN`, `FAILED`) and illegal
+transitions raise `SandboxStateError`. `COMPLETED` exists to distinguish "the
+sample has finished executing" from `RUNNING`'s "the sample is executing right
+now" -- a distinction that costs nothing today (the FSM's re-arm-only-after-a-
+real-restore guarantee holds identically either way) but that later milestones
+needing to act only while a sample is genuinely alive (concurrent collector
+attachment, in-flight deception mutation) will depend on. `detonate()` moves
+`ARMED -> RUNNING` on dispatch and `RUNNING -> COMPLETED` synchronously, right
+before returning, so a caller polling `.state` from another task sees an
+honest read throughout. `teardown()` remains callable from every state above,
+including `COMPLETED`, and always ends in `COLD`.
 
 ### 5.3 Collectors (`adam/collectors`)
 
@@ -1283,12 +1292,19 @@ detonation.
 
 ```toml
 [sandbox]
-vm_name           = "ADAM-WIN10"
-snapshot_name     = "clean"
-boot_timeout_s    = 120
-detonation_timeout_s = 300
-network_mode      = "SIMULATED"     # HOST_ONLY | SIMULATED | INTERNET
-vbox_manage_path  = "/usr/bin/VBoxManage"
+vm_name               = "ADAM-WIN10"
+snapshot_name         = "clean"
+boot_timeout_s        = 120
+guest_ready_timeout_s = 150     # added Milestone 4 -- split from boot_timeout_s
+                                 # once VM-power-on and Guest-Additions-ready
+                                 # proved to be separately timed, separately
+                                 # variable phases (see Milestone 3 investigation)
+detonation_timeout_s  = 300
+network_mode          = "SIMULATED"     # HOST_ONLY | SIMULATED | INTERNET
+vbox_manage_path      = "/usr/bin/VBoxManage"
+# guest_username / guest_password are intentionally NOT here -- see
+# section 12.3. They resolve only from environment variables / .env
+# (ADAM__SANDBOX__GUEST_USERNAME, ADAM__SANDBOX__GUEST_PASSWORD).
 
 [fusion]
 window_seconds       = 5.0
@@ -1329,7 +1345,14 @@ directory  = "logs"
 - `dry_run = true` runs the entire pipeline and records decisions with verdict
   `DRY_RUN` without touching the guest. This is the **control arm** of the
   experiment and also the safest way to develop policy.
-- Secrets never enter TOML. `.env` only, and `.env` is gitignored.
+- Secrets never enter TOML. `.env` only, and `.env` is gitignored. Concrete
+  case (Milestone 4): `sandbox.guest_username` / `sandbox.guest_password` are
+  required `SandboxSettings` fields with no TOML representation at all --
+  they resolve exclusively from `ADAM__SANDBOX__GUEST_USERNAME` /
+  `ADAM__SANDBOX__GUEST_PASSWORD`, sourced from real environment variables or
+  `.env`. Config loading fails fast with a validation error if neither is
+  set, rather than letting `SandboxController` fail later with a confusing
+  guest authentication error.
 
 ---
 

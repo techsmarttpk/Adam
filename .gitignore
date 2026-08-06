@@ -28,6 +28,9 @@ artifacts/*
 !artifacts/.gitkeep
 logs/*
 !logs/.gitkeep
+!logs/manual_tests/
+logs/manual_tests/*
+!logs/manual_tests/.gitkeep
 *.sqlite
 *.sqlite-wal
 *.sqlite-shm

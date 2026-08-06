@@ -1,19 +1,111 @@
 """
-Shared enums used across ADAM module boundaries.
+adam/contracts/enums.py
 
-NOTE: adam/contracts/ is owned jointly by all four devs (ARCHITECTURE.md P1).
-This file is a LOCAL STUB so Policy + Deception can be developed and tested
-offline before the real, team-reviewed adam/contracts package exists.
-Do not merge this file into main as-is — reconcile with whatever Dev A/B/D
-land in the real adam/contracts/enums.py first.
+Every enum referenced by the frozen contract models (ARCHITECTURE.md
+section 7). This file has no dependencies beyond the stdlib -- per section
+5.1, `adam/contracts/` must not import anything from any other ADAM module.
+
+Scope note: this covers enums needed by `Envelope`, `RawEvent`,
+`AnalysisSession`, and `adam/contracts/interfaces.py` (Dev A's scope), as
+well as enums owned by Dev C's Policy/Deception layer (`Verdict`,
+`MutationStatus`, `ChangeKind`). Additional enums belonging to
+`SemanticEvent` and `PolicyDecision` are added here by their respective
+owners per section 10.2.
 """
 
 from __future__ import annotations
 
-from enum import Enum
+import enum
 
 
-class Verdict(str, Enum):
+# ---------------------------------------------------------------------------
+# Core / Sandbox / Collector enums  (Dev A scope)
+# ---------------------------------------------------------------------------
+
+class Source(enum.Enum):
+    """RawEvent.source -- ARCHITECTURE.md section 7.2 table."""
+
+    SYSMON = "SYSMON"
+    PROCMON = "PROCMON"
+    WIRESHARK = "WIRESHARK"
+    AGENT = "AGENT"
+    ADAM = "ADAM"
+
+
+class Category(enum.Enum):
+    """RawEvent.category -- ARCHITECTURE.md section 7.2 table."""
+
+    PROCESS = "PROCESS"
+    FILE = "FILE"
+    REGISTRY = "REGISTRY"
+    NETWORK = "NETWORK"
+    MODULE = "MODULE"
+    WMI = "WMI"
+    MUTATION = "MUTATION"
+    SYSTEM = "SYSTEM"
+
+
+class Arm(enum.Enum):
+    """
+    AnalysisSession.arm -- ARCHITECTURE.md section 7.6.
+
+    Two sessions sharing an experiment_id and differing in arm are the unit
+    of comparison for behavioural yield.
+    """
+
+    CONTROL = "CONTROL"
+    TREATMENT = "TREATMENT"
+
+
+class NetworkMode(enum.Enum):
+    """
+    AnalysisSession.config.network_mode -- ARCHITECTURE.md section 12.2
+    (`network_mode = "SIMULATED"  # HOST_ONLY | SIMULATED | INTERNET`) and
+    section 7.6's example (`"network_mode": "SIMULATED"`).
+    """
+
+    HOST_ONLY = "HOST_ONLY"
+    SIMULATED = "SIMULATED"
+    INTERNET = "INTERNET"
+
+
+class SessionStatus(enum.Enum):
+    """
+    AnalysisSession.status.
+
+    ARCHITECTURE.md section 7.6's example shows only the terminal value
+    "COMPLETED"; the full set below is inferred from the section 6.1
+    session-lifecycle diagram (create -> prepare -> detonate -> teardown ->
+    report) rather than from an explicit enum in the architecture document.
+    Not part of the frozen section 7 shape -- flagged for confirmation in
+    the Phase 2 all-four-developer review per section 10.2.
+
+    PARTIAL added during Phase 8 (SessionOrchestrator): section 14.2's
+    governing-principle table names it explicitly ("VM lost mid-run ->
+    abort, force rollback, mark PARTIAL, report what was captured ->
+    Partial") and section 14.4 repeats it ("A session that errored still
+    produces a report -- marked PARTIAL. Partial results are still
+    evidence."). Discovered missing while implementing
+    SessionOrchestrator.run_session()'s failure-handling, which needs to
+    distinguish "failed before any telemetry could be captured" (FAILED)
+    from "failed after collectors were already running" (PARTIAL) -- see
+    that module's docstring.
+    """
+
+    PENDING = "PENDING"
+    PREPARING = "PREPARING"
+    RUNNING = "RUNNING"
+    COMPLETED = "COMPLETED"
+    PARTIAL = "PARTIAL"
+    FAILED = "FAILED"
+    ABORTED = "ABORTED"
+
+
+# ---------------------------------------------------------------------------
+# Policy / Deception enums  (Dev C scope)
+# ---------------------------------------------------------------------------
+
+class Verdict(str, enum.Enum):
     """Outcome of evaluating a PolicyDecision (§7.4)."""
 
     EXECUTE = "EXECUTE"
@@ -24,7 +116,7 @@ class Verdict(str, Enum):
     DRY_RUN = "DRY_RUN"
 
 
-class MutationStatus(str, Enum):
+class MutationStatus(str, enum.Enum):
     """Outcome of applying a deception primitive (§7.5)."""
 
     APPLIED = "APPLIED"
@@ -34,7 +126,7 @@ class MutationStatus(str, Enum):
     SKIPPED = "SKIPPED"
 
 
-class ChangeKind(str, Enum):
+class ChangeKind(str, enum.Enum):
     """The category of a single environmental change inside a MutationResult."""
 
     REGISTRY = "REGISTRY"
