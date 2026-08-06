@@ -1,0 +1,220 @@
+{% extends "base.html" %}
+
+{% block title %}ADAM — Research Report {{ session.session_id if session else 'Demo' }}{% endblock %}
+
+{% block nav_dashboard_class %}active{% endblock %}
+
+{% block breadcrumbs %}
+<span class="breadcrumb-separator">></span>
+<a href="/dashboard">Sessions</a>
+<span class="breadcrumb-separator">></span>
+<a href="/dashboard/session/{{ session.session_id if session else 'sess_demo_1' }}"><code>{{ session.session_id if session else 'sess_demo_1' }}</code></a>
+<span class="breadcrumb-separator">></span>
+<span class="breadcrumb-active">Research Report</span>
+{% endblock %}
+
+{% block header_actions %}
+  <div style="display: flex; gap: 8px;">
+
+
+    <button class="btn btn-secondary btn-sm" onclick="window.print()" id="btn-print-report">
+      <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"></path></svg>
+      Print / PDF
+    </button>
+    <button class="btn btn-primary btn-sm" id="btn-export-json">
+      <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+      Export JSON
+    </button>
+  </div>
+{% endblock %}
+
+{% block content %}
+<div style="display: flex; flex-direction: column; gap: 32px;">
+
+  <!-- REPORT TITLE CARD -->
+  <section class="card" style="border-left: 5px solid var(--accent-primary);">
+    <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+      <div>
+        <h1 style="font-size: 2rem; font-weight: 800; margin-bottom: 8px;">Malware Analysis & Deception Yield Report</h1>
+        <p style="color: var(--text-secondary); font-size: 0.95rem;">
+          Experiment Group: <strong>{{ session.experiment_id if session else 'exp_lockbit_variant_7' }}</strong> | 
+          Arm: <strong>{{ session.arm if session else 'TREATMENT' }}</strong>
+        </p>
+      </div>
+      <div style="text-align: right;">
+        <span class="badge badge-completed" style="font-size: 0.85rem; padding: 6px 14px;">COMPLETED</span>
+        <p style="font-size: 0.75rem; color: var(--text-muted); margin-top: 8px;">
+          Generated on: {{ session.ended_at if session else '2026-07-21T14:35:07Z' }}
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- BEHAVIORAL YIELD COMPARISON (PRIMARY RESEARCH SECTION) -->
+  <section class="card">
+    <div class="card-header">
+      <h2 class="card-title">Behavioral Yield Assessment</h2>
+      <span class="badge badge-treatment">Control vs. Treatment Metric</span>
+    </div>
+    
+    <p style="color: var(--text-secondary); margin-bottom: 24px;">
+      Behavioral Yield measures the effectiveness of deception by attributing subsequent malware behaviors to active mutation causal windows. If deception triggers new recon or attack paths that were suppressed in the control run, the yield represents these newly observed events.
+    </p>
+
+    <div class="yield-grid">
+      <!-- CONTROL SIDE -->
+      <div class="card" style="background-color: hsla(270, 70%, 65%, 0.03); border-color: rgba(162, 89, 255, 0.2);">
+        <div style="text-align: center;">
+          <span class="badge badge-control" style="margin-bottom: 12px;">Control Run (Standard)</span>
+          <div class="metric-val" style="color: var(--status-control);">0</div>
+          <div class="metric-label" style="margin-top: 8px;">Semantic Events Observed</div>
+        </div>
+      </div>
+      
+      <!-- ATTRIBUTION FLOW -->
+      <div class="yield-divider">
+        <span class="yield-arrow">➔</span>
+        <span>+{{ session.metrics.semantic_events_post_mutation if session else 21 }} events</span>
+      </div>
+
+      <!-- TREATMENT SIDE -->
+      <div class="card" style="background-color: hsla(30, 90%, 60%, 0.03); border-color: rgba(243, 156, 18, 0.2);">
+        <div style="text-align: center;">
+          <span class="badge badge-treatment" style="margin-bottom: 12px;">Treatment Run (Deceived)</span>
+          <div class="metric-val" style="color: var(--status-treatment);">{{ session.metrics.semantic_events if session else 47 }}</div>
+          <div class="metric-label" style="margin-top: 8px;">Semantic Events (Total)</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- COMPARISON TABLE -->
+    <div class="table-responsive">
+      <table class="table yield-compare-table">
+        <thead>
+          <tr>
+            <th>Observed Intent Category</th>
+            <th>Control Arm Frequency</th>
+            <th>Treatment Arm Frequency</th>
+            <th>Attributable to Mutation?</th>
+            <th>Traceability (Correlation ID)</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% if yield_comparisons %}
+            {% for row in yield_comparisons %}
+            <tr>
+              <td><strong>{{ row.intent }}</strong></td>
+              <td><code>{{ row.control_count }}</code></td>
+              <td><code>{{ row.treatment_count }}</code></td>
+              <td>
+                {% if row.attributed %}
+                  <span class="badge badge-ready">Yes (100%)</span>
+                {% else %}
+                  <span class="badge badge-cold">No</span>
+                {% endif %}
+              </td>
+              <td><code>{{ row.correlation_id }}</code></td>
+            </tr>
+            {% endfor %}
+          {% else %}
+            <!-- Fallback Mock Data for demo view -->
+            <tr>
+              <td><strong>RECON_DOMAIN_CONTROLLER</strong></td>
+              <td><code>0</code></td>
+              <td><code>3</code></td>
+              <td><span class="badge badge-ready">Yes</span></td>
+              <td><a href="/dashboard/session/{{ session.session_id if session else 'sess_demo_1' }}" style="font-family: var(--font-mono);">corr_01J8X4K2M9</a></td>
+            </tr>
+            <tr>
+              <td><strong>ATTACK_ACTIVE_DIRECTORY_LDAP</strong></td>
+              <td><code>0</code></td>
+              <td><code>12</code></td>
+              <td><span class="badge badge-ready">Yes</span></td>
+              <td><a href="/dashboard/session/{{ session.session_id if session else 'sess_demo_1' }}" style="font-family: var(--font-mono);">corr_01J8X4K2M9</a></td>
+            </tr>
+            <tr>
+              <td><strong>ATTACK_SYSVOL_SHARE_ACCESS</strong></td>
+              <td><code>0</code></td>
+              <td><code>6</code></td>
+              <td><span class="badge badge-ready">Yes</span></td>
+              <td><a href="/dashboard/session/{{ session.session_id if session else 'sess_demo_1' }}" style="font-family: var(--font-mono);">corr_01J8X4K2M9</a></td>
+            </tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- MITRE ATT&CK COVERAGE -->
+  <section class="card">
+    <div class="card-header">
+      <h2 class="card-title">MITRE ATT&CK Alignment</h2>
+      <span class="badge badge-ready">Tactic Coverage</span>
+    </div>
+    
+    <p style="color: var(--text-secondary); margin-bottom: 20px;">
+      Techniques dynamically triggered and observed during execution. Highlights indicate tactics unlocked due to active deception feedback loop.
+    </p>
+
+    <div class="attack-matrix">
+      <div class="attack-column">
+        <div class="attack-column-header">Reconnaissance</div>
+        <div class="attack-cell active">T1592<br>Gather Host Info</div>
+        <div class="attack-cell">T1589<br>Gather Identity</div>
+      </div>
+      
+      <div class="attack-column">
+        <div class="attack-column-header">Discovery</div>
+        <div class="attack-cell active">T1018<br>System Discovery</div>
+        <div class="attack-cell active">T1082<br>System Info Discovery</div>
+        <div class="attack-cell">T1135<br>Network Share Discovery</div>
+      </div>
+
+      <div class="attack-column">
+        <div class="attack-column-header">Credential Access</div>
+        <div class="attack-cell active">T1003<br>OS Credential Dumping</div>
+        <div class="attack-cell">T1555<br>Credentials from Store</div>
+      </div>
+
+      <div class="attack-column">
+        <div class="attack-column-header">Execution</div>
+        <div class="attack-cell active">T1059<br>Command/Scripting</div>
+        <div class="attack-cell">T1204<br>User Execution</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- REPORT DETAIL SECTIONS (MUTATIONS & DECISION TIMELINE) -->
+  <section class="card">
+    <div class="card-header">
+      <h2 class="card-title">Deception Ledger Summary</h2>
+    </div>
+    <div class="table-responsive">
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Applied Timestamp</th>
+            <th>Deception Action</th>
+            <th>Target Modifications</th>
+            <th>Plausibility</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>14:32:14.118Z</code></td>
+            <td><strong>FakeDomainControllerDeception</strong></td>
+            <td>DNS responding DC01.CORP.LOCAL; Fake SYSVOL directory created.</td>
+            <td><code>0.72</code> - Registry mtime check vulnerable.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- USER-DEFINED INTEGRATION FOOTER -->
+  {% block custom_report_footer %}
+  <!-- Customizable slot for custom findings or extra paper sections -->
+  {% endblock %}
+
+</div>
+{% endblock %}
