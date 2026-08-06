@@ -35,8 +35,11 @@ guest_backend = "http"
 [sandbox]
 vm_name               = "ADAM_WIN10_OFFICE"
 snapshot_name         = "clean"
-boot_timeout_s        = 60.0
-guest_ready_timeout_s = 150.0
+# Startup/readiness hardening pass (real-VM validation found this guest
+# significantly slower to boot than the original 60s/150s assumed) --
+# see adam.common.config.SandboxSettings for what each timeout guards.
+boot_timeout_s        = 200.0
+guest_ready_timeout_s = 200.0
 
 # Guest-side telemetry tools (Phase 5 -- Guest Agent). Paths are INSIDE the
 # guest VM, not on the host -- see adam/common/config.py's GuestToolsSettings
@@ -58,6 +61,13 @@ capture_dir   = "C:\\ADAM\\telemetry"
 # sysmon_log/tshark_interface/capture_dir here are HTTPGuestChannel's own
 # copy for verify_tools() reporting and MUST be kept consistent with it
 # by whoever provisions the guest image.
+# Policy Engine (adam/policy/engine.py). Consumed by the live
+# Fusion -> Policy -> Deception pipeline (adam/orchestrator/pipeline.py).
+[policy]
+ruleset_path = "rules/default"
+global_confidence_gate = 0.60
+dry_run = false
+
 [http_guest]
 # PLACEHOLDER -- 127.0.0.1 is not a real guest address. Override in
 # config/<ADAM_ENV>.toml with the guest's actual host-only-adapter IP
@@ -65,7 +75,23 @@ capture_dir   = "C:\\ADAM\\telemetry"
 # resolve) before ever setting guest_backend = "http".
 host = "192.168.56.103"
 port = 8765
-request_timeout_s = 15.0
+
+# Startup/readiness hardening pass -- see
+# adam.common.config.HttpGuestSettings for what each field guards and
+# adam.sandbox.guest.http_channel.HTTPGuestChannel.wait_until_ready() for
+# the hardened sequence these values drive (network-readiness stage, then
+# /health polling). Old -> new: request_timeout_s 15.0 -> 30.0,
+# retry_attempts 3 -> 5 (was never actually wired to config before this
+# pass -- real runs used HTTPGuestChannel's hardcoded constructor default
+# regardless), retry_backoff_s 0.2 -> 0.5.
+request_timeout_s        = 30.0
+agent_ready_timeout_s     = 200.0
+network_ready_timeout_s   = 60.0
+network_poll_interval_s   = 2.0
+readiness_poll_interval_s = 1.0
+retry_attempts            = 5
+retry_backoff_s           = 0.5
+
 procmon_path  = "C:\\Users\\Admin\\Downloads\\ProcessMonitor\\Procmon64.exe"
 tshark_path   = "C:\\Program Files\\Wireshark\\tshark.exe"
 sysmon_log    = "Microsoft-Windows-Sysmon/Operational"

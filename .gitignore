@@ -45,3 +45,4 @@ samples/*
 *.pml
 
 telemetry_diagnostic.log
+telemetry_log.log

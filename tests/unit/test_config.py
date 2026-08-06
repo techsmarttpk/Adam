@@ -25,7 +25,7 @@ import tomllib
 import pytest
 from pydantic import ValidationError
 
-from adam.common.config import CONFIG_DIR, HttpGuestSettings, Settings, get_settings
+from adam.common.config import CONFIG_DIR, HttpGuestSettings, SandboxSettings, Settings, get_settings
 
 
 def _minimal_settings(**overrides: object) -> Settings:
@@ -46,12 +46,41 @@ class TestHttpGuestSettings:
         settings = HttpGuestSettings()
         assert settings.host == "127.0.0.1"
         assert settings.port == 8765
-        assert settings.request_timeout_s == 15.0
+        assert settings.request_timeout_s == 30.0
         assert settings.procmon_path is None
         assert settings.tshark_path is None
         assert settings.sysmon_log == "Microsoft-Windows-Sysmon/Operational"
         assert settings.tshark_interface == "1"
         assert settings.capture_dir == "C:\\ADAM\\telemetry"
+
+    def test_startup_readiness_hardening_defaults(self) -> None:
+        """
+        Startup/readiness hardening pass -- new fields driving
+        HTTPGuestChannel.wait_until_ready()'s two-stage sequence
+        (network-readiness, then HTTP /health polling) and its retry
+        behavior. See adam.sandbox.guest.http_channel for how each is
+        consumed.
+        """
+        settings = HttpGuestSettings()
+        assert settings.agent_ready_timeout_s == 200.0
+        assert settings.network_ready_timeout_s == 60.0
+        assert settings.network_poll_interval_s == 2.0
+        assert settings.readiness_poll_interval_s == 1.0
+        assert settings.retry_attempts == 5
+        assert settings.retry_backoff_s == 0.5
+
+    def test_startup_readiness_fields_must_be_positive(self) -> None:
+        for field in (
+            "agent_ready_timeout_s",
+            "network_ready_timeout_s",
+            "network_poll_interval_s",
+            "readiness_poll_interval_s",
+            "retry_backoff_s",
+        ):
+            with pytest.raises(ValidationError):
+                HttpGuestSettings(**{field: 0})
+        with pytest.raises(ValidationError):
+            HttpGuestSettings(retry_attempts=0)
 
     def test_base_url_property(self) -> None:
         settings = HttpGuestSettings(host="192.168.56.101", port=9001)
@@ -65,6 +94,21 @@ class TestHttpGuestSettings:
             HttpGuestSettings(request_timeout_s=0)
         with pytest.raises(ValidationError):
             HttpGuestSettings(request_timeout_s=-1.0)
+
+
+class TestSandboxSettingsHardenedTimeouts:
+    """
+    Startup/readiness hardening pass -- boot_timeout_s/guest_ready_timeout_s
+    bumped from their original 60.0/150.0 defaults after real-VM validation
+    found this guest significantly slower to boot than those values
+    assumed. See adam.sandbox.controller.SandboxController for how both are
+    consumed.
+    """
+
+    def test_defaults(self) -> None:
+        settings = SandboxSettings(vm_name="TEST_VM", guest_username="tester", guest_password="x")
+        assert settings.boot_timeout_s == 200.0
+        assert settings.guest_ready_timeout_s == 200.0
 
 
 class TestGuestBackendSelector:
@@ -150,6 +194,35 @@ class TestDefaultTomlParses:
         assert settings.http_guest.port == 8765
         assert settings.http_guest.host == "127.0.0.1"  # the documented placeholder -- see default.toml's own comment
         assert settings.guest_tools.procmon_path is not None
+
+
+class TestDefaultTomlHardenedTimeouts:
+    """
+    config/default.toml's [sandbox] and [http_guest] hardened timeout/retry
+    values (startup/readiness hardening pass) must actually reach Settings
+    -- kept as its own test class, independent of
+    TestDefaultTomlParses.test_default_toml_produces_valid_settings (which
+    has a pre-existing, unrelated failure asserting guest_backend=='vbox'
+    against a default.toml that currently ships guest_backend='http' --
+    not this pass's concern), so a regression here isn't masked by that
+    one.
+    """
+
+    def test_hardened_values_present_in_settings(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("ADAM__SANDBOX__GUEST_USERNAME", "tester")
+        monkeypatch.setenv("ADAM__SANDBOX__GUEST_PASSWORD", "not-a-real-secret")
+        monkeypatch.setenv("ADAM_ENV", "__test_env_that_does_not_exist__")
+
+        settings = Settings()  # type: ignore[call-arg]
+        assert settings.sandbox.boot_timeout_s == 200.0
+        assert settings.sandbox.guest_ready_timeout_s == 200.0
+        assert settings.http_guest.request_timeout_s == 30.0
+        assert settings.http_guest.agent_ready_timeout_s == 200.0
+        assert settings.http_guest.network_ready_timeout_s == 60.0
+        assert settings.http_guest.network_poll_interval_s == 2.0
+        assert settings.http_guest.readiness_poll_interval_s == 1.0
+        assert settings.http_guest.retry_attempts == 5
+        assert settings.http_guest.retry_backoff_s == 0.5
 
 
 class TestGuestBackendIsRootLevel:

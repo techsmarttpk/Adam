@@ -39,20 +39,48 @@ Design notes:
   is strictly AFTER SandboxController.prepare()'s own VirtualBox-level
   wait_for_guest_ready() has already succeeded -- it is not a VM boot
   problem, it's this specific HTTP service coming up slightly later).
-  `wait_until_ready()` polls GET /health once a second until it returns
-  HTTP 200 with a `success: true` envelope, or `guest_ready_timeout_s`
-  (the SAME setting SandboxController already uses for VM-level readiness
-  -- no second timeout config) expires, in which case it raises
-  `adam.common.errors.GuestTimeoutError`. A successful check is cached for
-  the lifetime of this instance (`self._ready`) -- once ready, this method
-  is a no-op; nothing in this class proactively re-polls /health before
-  later calls, so a guest that goes unhealthy mid-session is caught by
-  those calls' own normal transport-error handling instead, exactly as
-  requested. `verify_tools()` is the one caller (see its own docstring) --
-  every other method assumes verify_tools() already ran, matching how
-  SessionOrchestrator actually calls this class (adam/orchestrator/
-  session.py: controller.prepare() -> controller.arm() -> guest_agent.
-  verify_tools() -> start_captures() -> ... -> stop_export_and_fetch()).
+
+  Startup/readiness hardening pass (slow-VM tolerance): `wait_until_ready()`
+  now runs TWO explicit stages, in order:
+
+    1. `_wait_for_network()` -- a raw TCP-level reachability check against
+       (host, port), retried at `network_poll_interval_s` intervals for up
+       to `network_ready_timeout_s`. Distinguishes "the guest's network
+       isn't up yet" (connect times out / host unreachable -- keep
+       retrying) from "the network is fine, something already answered"
+       (an explicit connection-refused response counts as network-reachable
+       and ends this stage immediately -- a refused connection is itself a
+       TCP-level response from the guest, it just means the HTTP agent
+       hasn't bound its listener yet, which is stage 2's problem to catch,
+       not this stage's).
+    2. The existing GET /health polling loop, retried at
+       `readiness_poll_interval_s` intervals for up to
+       `agent_ready_timeout_s` (renamed from reusing
+       `guest_ready_timeout_s` directly -- see `__init__`'s docstring).
+
+  Each stage raises its own clearly-labeled `adam.common.errors.
+  GuestTimeoutError` on timeout (message prefixed "network unavailable" or
+  "HTTP guest agent did not become healthy" respectively) so a caller/log
+  reader can immediately tell which of the two problems occurred, per the
+  hardening requirement to "clearly distinguish: VM not ready / network
+  unavailable / HTTP service unavailable / HTTP service unhealthy" (the
+  first of those four is SandboxController.prepare()'s own
+  wait_for_guest_ready() failing, earlier in the call chain, before this
+  method ever runs; the latter two are both surfaced by stage 2 above,
+  distinguished in `_probe_health_once()`'s own `detail` string: a
+  transport error is "HTTP service unavailable", a reachable-but-
+  success=false/non-200/malformed response is "HTTP service unhealthy").
+
+  A successful check is cached for the lifetime of this instance
+  (`self._ready`) -- once ready, this method is a no-op; nothing in this
+  class proactively re-polls /health before later calls, so a guest that
+  goes unhealthy mid-session is caught by those calls' own normal
+  transport-error handling instead, exactly as requested. `verify_tools()`
+  is the one caller (see its own docstring) -- every other method assumes
+  verify_tools() already ran, matching how SessionOrchestrator actually
+  calls this class (adam/orchestrator/session.py: controller.prepare() ->
+  controller.arm() -> guest_agent.verify_tools() -> start_captures() ->
+  ... -> stop_export_and_fetch()).
 """
 
 from __future__ import annotations
@@ -63,7 +91,7 @@ import hashlib
 import logging
 import time
 from pathlib import Path
-from typing import Any, TypeVar
+from typing import Any, Awaitable, Callable, TypeVar
 
 import httpx
 from pydantic import BaseModel
@@ -126,16 +154,21 @@ class HTTPGuestChannel:
         tshark_path: str | None,
         sysmon_log: str,
         tshark_interface: str = "1",
-        request_timeout_s: float = 15.0,
-        retry_attempts: int = 3,
-        retry_backoff_s: float = 0.2,
-        guest_ready_timeout_s: float = 150.0,
+        request_timeout_s: float = 30.0,
+        retry_attempts: int = 5,
+        retry_backoff_s: float = 0.5,
+        guest_ready_timeout_s: float = 200.0,
         readiness_poll_interval_s: float = 1.0,
+        network_ready_timeout_s: float = 60.0,
+        network_poll_interval_s: float = 2.0,
+        network_prober: Callable[[], Awaitable[tuple[bool, str]]] | None = None,
         client: httpx.AsyncClient | None = None,
     ) -> None:
         """
         base_url: e.g. "http://192.168.56.101:8765" -- the guest's
-        HttpListener endpoint (see install.ps1 for the default port).
+        HttpListener endpoint (see install.ps1 for the default port). Also
+        parsed for host/port, used by the default network-readiness prober
+        (see `network_prober` below).
 
         `retry_attempts`/`retry_backoff_s`: every call through `_request()`
         retries up to `retry_attempts` times (exponential backoff starting
@@ -145,23 +178,45 @@ class HTTPGuestChannel:
         effort is spent before settling into the same None/logged-warning
         outcome a single failed attempt already produced. Set
         `retry_attempts=1` to disable retrying (e.g. in tests that want a
-        transport failure to resolve immediately).
+        transport failure to resolve immediately). Defaults (5 attempts,
+        0.5s base backoff) and every timeout default in this constructor
+        come from adam.common.config.HttpGuestSettings' own defaults
+        (startup/readiness hardening pass) -- callers built via
+        adam/orchestrator/runner.py's Runner._build_guest_channel() always
+        pass Settings.http_guest's values explicitly, so these class-level
+        defaults only matter for a directly-constructed channel (a script
+        or test) that doesn't.
 
-        `guest_ready_timeout_s`: default matches
-        Settings.sandbox.guest_ready_timeout_s's own default (adam/common/
-        config.py) -- callers built via adam/orchestrator/runner.py's
-        Runner._build_guest_channel() pass that same setting explicitly, so
-        this default only matters for a directly-constructed channel (e.g.
-        a script or test) that doesn't. See `wait_until_ready()`.
+        `guest_ready_timeout_s`: total budget for the GET /health polling
+        stage specifically (renamed in spirit, kept as the same parameter
+        name for backward compatibility -- see `wait_until_ready()`).
+        Previously reused Settings.sandbox.guest_ready_timeout_s directly;
+        Runner now passes Settings.http_guest.agent_ready_timeout_s here
+        instead, a dedicated field, since the HTTP agent's own startup
+        budget (Windows logon + Scheduled Task start + HttpListener bind)
+        is conceptually distinct from the VM-level Guest Additions check
+        sandbox.guest_ready_timeout_s already budgets for.
 
-        `readiness_poll_interval_s`: the 1-second poll cadence
-        `wait_until_ready()` uses between GET /health attempts. Overridable
-        (not just so tests can run fast without a real sleep -- see
-        tests/integration/test_http_guest_channel.py -- but because it's
-        the one number in this constructor that isn't itself sourced from
-        Settings, per the "do not introduce another timeout configuration
-        unless absolutely necessary" instruction this was built against;
-        1.0 is the literal, explicitly requested default).
+        `readiness_poll_interval_s`: poll cadence `wait_until_ready()` uses
+        between GET /health attempts (stage 2). Overridable so tests can
+        run fast without a real sleep (see
+        tests/integration/test_http_guest_channel.py).
+
+        `network_ready_timeout_s`/`network_poll_interval_s`: total budget
+        and poll cadence for the new stage-1 network-readiness check (see
+        `_wait_for_network()`) that now runs before GET /health polling
+        begins.
+
+        `network_prober`: injectable async callable returning
+        `(reachable, detail)`, used by `_wait_for_network()` instead of the
+        default real-TCP-connect implementation (`_default_network_probe()`).
+        Exists for the same reason `client` is injectable: tests exercise
+        this class against `httpx.MockTransport` fakes with no real socket
+        behind them at all, so the default TCP-connect prober (which opens
+        a real socket, independent of the injected httpx client/transport)
+        would hang or fail against a fake hostname -- tests inject a fake
+        prober here to keep exercising the HTTP-layer logic in isolation,
+        exactly as `client` already lets them do for the HTTP layer itself.
 
         `client` is injectable for tests (see
         tests/integration/test_http_guest_channel.py) -- defaults to a
@@ -178,6 +233,12 @@ class HTTPGuestChannel:
         self._retry_backoff_s = retry_backoff_s
         self._guest_ready_timeout_s = guest_ready_timeout_s
         self._readiness_poll_interval_s = readiness_poll_interval_s
+        self._network_ready_timeout_s = network_ready_timeout_s
+        self._network_poll_interval_s = network_poll_interval_s
+        self._network_prober = network_prober
+        parsed_url = httpx.URL(self._base_url)
+        self._host = parsed_url.host
+        self._port = parsed_url.port or 80
         self._ready = False
         self._client = client or httpx.AsyncClient(base_url=self._base_url, timeout=request_timeout_s)
 
@@ -317,6 +378,106 @@ class HTTPGuestChannel:
     # "Readiness" paragraph for the full design rationale.
     # ------------------------------------------------------------------ #
 
+    async def _default_network_probe(self) -> tuple[bool, str]:
+        """
+        Real network-readiness check: attempts a raw TCP connect to
+        (self._host, self._port), independent of the httpx client/
+        transport entirely (so it genuinely exercises IP-level
+        reachability, not whatever `self._client` is configured to do --
+        the two are deliberately decoupled, same reasoning as
+        `_probe_health_once()` bypassing `_send_with_retry()`).
+
+        Three distinct outcomes:
+          - Connects successfully -> reachable=True, "tcp connect
+            succeeded" (closes the socket immediately; this probe only
+            establishes reachability, it isn't the HTTP request itself).
+          - `ConnectionRefusedError` -> reachable=True. Counter-intuitive
+            at first glance, but correct: an RST is itself a response from
+            the guest's network stack, proving the network path works --
+            the guest just hasn't bound its HttpListener on this port yet,
+            which is stage 2's (`wait_until_ready()`'s /health polling)
+            problem to catch and report as "HTTP service unavailable", not
+            this stage's "network unavailable".
+          - Any other `OSError` (including `asyncio.TimeoutError` via the
+            5-second per-attempt cap) -> reachable=False -- no response at
+            all (host down, no route, adapter not up, firewall dropping
+            silently). This is the genuine "network unavailable" case
+            `_wait_for_network()` keeps retrying.
+        """
+        try:
+            reader, writer = await asyncio.wait_for(
+                asyncio.open_connection(self._host, self._port), timeout=5.0
+            )
+        except ConnectionRefusedError as exc:
+            return True, f"connection refused (network reachable, port not yet listening): {exc}"
+        except (OSError, asyncio.TimeoutError) as exc:
+            return False, f"network unreachable: {exc}"
+
+        writer.close()
+        try:
+            await writer.wait_closed()
+        except OSError:
+            pass  # best-effort close; reachability was already proven above
+        return True, "tcp connect succeeded"
+
+    async def _probe_network_once(self) -> tuple[bool, str]:
+        """One network-readiness attempt -- delegates to the injected `network_prober` if given, else `_default_network_probe()`. See `__init__`'s `network_prober` docstring for why this is injectable."""
+        if self._network_prober is not None:
+            return await self._network_prober()
+        return await self._default_network_probe()
+
+    async def _wait_for_network(self) -> None:
+        """
+        Stage 1 of `wait_until_ready()` (startup/readiness hardening pass):
+        polls raw TCP reachability to (host, port) at
+        `self._network_poll_interval_s` intervals until reachable or
+        `self._network_ready_timeout_s` elapses. See module docstring's
+        "Readiness" paragraph and `_default_network_probe()` for exactly
+        what counts as reachable.
+
+        Raises `adam.common.errors.GuestTimeoutError` on timeout, with a
+        message explicitly prefixed "network unavailable" so it reads
+        distinctly from stage 2's "did not become healthy" timeout message
+        -- the whole point of splitting this into its own stage.
+        """
+        started = time.monotonic()
+        deadline = started + self._network_ready_timeout_s
+        attempt = 0
+
+        logger.info(
+            "guest_http: Waiting for network... (host=%s, port=%d, timeout=%.1fs, poll_interval=%.1fs)",
+            self._host, self._port, self._network_ready_timeout_s, self._network_poll_interval_s,
+        )
+
+        while True:
+            attempt += 1
+            logger.info("guest_http: Attempt %d...", attempt)
+
+            reachable, detail = await self._probe_network_once()
+            if reachable:
+                elapsed = time.monotonic() - started
+                logger.info("guest_http: Network reachable. (%.1fs, %s)", elapsed, detail)
+                return
+
+            logger.debug("guest_http: Attempt %d -- network not reachable yet -- %s", attempt, detail)
+
+            if time.monotonic() >= deadline:
+                elapsed = time.monotonic() - started
+                logger.warning("guest_http: network unavailable -- host did not become reachable before timeout.")
+                raise GuestTimeoutError(
+                    f"network unavailable: {self._host}:{self._port} did not become TCP-reachable "
+                    f"within {self._network_ready_timeout_s:.1f}s ({attempt} attempt(s), polling every "
+                    f"{self._network_poll_interval_s:.1f}s; elapsed={elapsed:.1f}s). This is distinct from "
+                    "an HTTP-level failure (see 'HTTP service unavailable'/'HTTP service unhealthy' in "
+                    "wait_until_ready()'s own timeout) -- no TCP response of any kind (not even a "
+                    "connection-refused RST) was received from this host:port at all, which points at a "
+                    "network/IP-configuration problem (wrong [http_guest].host, VM not on the expected "
+                    f"host-only adapter, firewall) rather than the guest-resident HTTP agent itself. "
+                    f"Last observed state: {detail}"
+                )
+
+            await asyncio.sleep(self._network_poll_interval_s)
+
     async def _probe_health_once(self) -> tuple[bool, str]:
         """
         One single, non-retried GET /health attempt. Returns
@@ -355,38 +516,45 @@ class HTTPGuestChannel:
 
     async def wait_until_ready(self, timeout_s: float | None = None) -> None:
         """
-        Polls GET /health at `self._readiness_poll_interval_s` (default
-        1s) intervals until it reports healthy or `timeout_s` (default
-        `self._guest_ready_timeout_s`, i.e. the SAME
-        Settings.sandbox.guest_ready_timeout_s VM-level readiness already
-        uses -- no second timeout config introduced) elapses.
+        Two-stage startup/readiness check (hardening pass -- see module
+        docstring's "Readiness" paragraph for the full rationale):
 
-        No sleep before the FIRST attempt -- it fires immediately on
+          1. `_wait_for_network()` -- raw TCP reachability to (host, port).
+          2. Polls GET /health at `self._readiness_poll_interval_s`
+             (default 1s) intervals until it reports healthy or
+             `timeout_s` (default `self._guest_ready_timeout_s`, i.e.
+             Settings.http_guest.agent_ready_timeout_s) elapses.
+
+        No sleep before stage 2's FIRST attempt -- it fires immediately on
         entry, so a guest that's already up returns right away with zero
-        added latency; the 1-second wait only happens BETWEEN a failed
-        attempt and the next one. This deliberately does not duplicate
-        VM-level boot detection: by the time anything calls this method
-        (verify_tools(), in the real session flow -- see module
+        added latency; the poll-interval wait only happens BETWEEN a
+        failed attempt and the next one. This deliberately does not
+        duplicate VM-level boot detection: by the time anything calls this
+        method (verify_tools(), in the real session flow -- see module
         docstring), SandboxController.prepare() has already run its own
         wait_for_guest_ready() check and confirmed the VM/guest OS itself
-        is reachable. A timeout here means specifically that the VM booted
-        but the guest-resident HTTP agent (adam_agent.ps1) never came up
-        on top of that -- distinct from a VM boot failure, which would
-        have already raised (a VMOperationError) inside prepare(), earlier
-        in the call chain, before this method could ever run.
+        is reachable. A timeout in stage 2 means specifically that the VM
+        booted and the network came up, but the guest-resident HTTP agent
+        (adam_agent.ps1) never came up on top of that -- distinct from a
+        VM boot failure (raised earlier, inside prepare(), before this
+        method could ever run) and distinct from stage 1's network-level
+        timeout (raised by `_wait_for_network()` itself, with its own
+        "network unavailable"-prefixed message).
 
         Caches success on `self._ready` -- a second call after a
         successful first one returns immediately without issuing another
-        HTTP request, so a long-running session's later guest-channel
-        calls never proactively re-check /health; per the explicit
-        instruction this was built against, a later request that actually
-        fails is left to its own normal error handling instead.
+        network probe or HTTP request, so a long-running session's later
+        guest-channel calls never proactively re-check readiness; per the
+        explicit instruction this was built against, a later request that
+        actually fails is left to its own normal error handling instead.
 
-        Raises `adam.common.errors.GuestTimeoutError` if the timeout
-        expires without a healthy response.
+        Raises `adam.common.errors.GuestTimeoutError` if either stage's
+        timeout expires without success.
         """
         if self._ready:
             return
+
+        await self._wait_for_network()
 
         effective_timeout = timeout_s if timeout_s is not None else self._guest_ready_timeout_s
         started = time.monotonic()
@@ -400,12 +568,12 @@ class HTTPGuestChannel:
 
         while True:
             attempt += 1
-            logger.info("guest_http: Attempt %d", attempt)
+            logger.info("guest_http: Attempt %d...", attempt)
 
             healthy, detail = await self._probe_health_once()
             if healthy:
                 elapsed = time.monotonic() - started
-                logger.info("guest_http: HTTP guest agent is healthy after %.1f seconds.", elapsed)
+                logger.info("guest_http: HTTP guest healthy. (%.1f seconds)", elapsed)
                 self._ready = True
                 return
 
@@ -414,14 +582,23 @@ class HTTPGuestChannel:
             if time.monotonic() >= deadline:
                 elapsed = time.monotonic() - started
                 logger.warning("guest_http: HTTP guest agent failed to become healthy before timeout.")
+                # "HTTP service unavailable" (transport error -- nothing
+                # answering the HTTP request at all, even though stage 1
+                # already proved the network path itself is reachable) vs.
+                # "HTTP service unhealthy" (a response WAS received, but a
+                # non-200 / success=false / malformed body) -- both folded
+                # into this one GuestTimeoutError, distinguished by
+                # `detail`'s own text (see _probe_health_once()).
                 raise GuestTimeoutError(
                     f"HTTP guest agent at {self._base_url} did not become healthy within "
                     f"{effective_timeout:.1f}s ({attempt} attempt(s), polling GET /health every "
                     f"{self._readiness_poll_interval_s:.1f}s; last elapsed={elapsed:.1f}s). The VM/guest "
                     "OS itself was already confirmed reachable by SandboxController.prepare()'s existing "
-                    "wait_for_guest_ready() check before this method ever ran -- this is specifically the "
-                    "guest-resident HTTP agent (adam_agent.ps1) never responding healthy on top of an "
-                    f"already-booted VM, not a VM boot failure. Last observed state: {detail}"
+                    "wait_for_guest_ready() check, and this host:port was already confirmed TCP-reachable "
+                    "by this method's own network-readiness stage, before this polling loop ever ran -- "
+                    "this is specifically the guest-resident HTTP agent (adam_agent.ps1) never responding "
+                    f"healthy on top of an already-booted, network-reachable VM, not a VM boot failure and "
+                    f"not a network failure. Last observed state: {detail}"
                 )
 
             await asyncio.sleep(self._readiness_poll_interval_s)
@@ -483,6 +660,8 @@ class HTTPGuestChannel:
         sysmon_log_available = bool(sysmon_data and SysmonDiagnosticsData.model_validate(sysmon_data).channel_available)
         if not sysmon_log_available:
             detail["sysmon"] = f"event log channel {self._sysmon_log!r} not available"
+        else:
+            logger.info("guest_http: Sysmon verified.")
 
         for tool, reason in detail.items():
             logger.warning("guest_http: tool unavailable -- %s: %s", tool, reason)
@@ -508,6 +687,8 @@ class HTTPGuestChannel:
         capture_procmon: bool = True,
         capture_network: bool = True,
     ) -> None:
+        logger.info("guest_http: Starting telemetry... (session=%s)", session_id)
+
         await self._request(
             "POST", "/filesystem/mkdir", json_body=MkdirRequest(path=self._capture_dir).model_dump(),
             label="start_captures: mkdir capture_dir",
@@ -521,6 +702,7 @@ class HTTPGuestChannel:
                 label="start_captures: procmon",
             )
             logger.info("[HTTPGuestChannel] session=%s procmon start result=%s", session_id, result)
+            logger.info("guest_http: Procmon started." if result is not None else "guest_http: Procmon failed to start.")
 
         if capture_network and self._tshark_path is not None:
             interfaces = await self._request("GET", "/network/interfaces", label="start_captures: list interfaces")
@@ -538,6 +720,7 @@ class HTTPGuestChannel:
                 label="start_captures: tshark",
             )
             logger.info("[HTTPGuestChannel] session=%s tshark start result=%s", session_id, result)
+            logger.info("guest_http: Network started." if result is not None else "guest_http: Network capture failed to start.")
 
     # ------------------------------------------------------------------ #
     # GuestChannel: stop_export_and_fetch

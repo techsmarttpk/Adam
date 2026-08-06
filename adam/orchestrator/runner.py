@@ -161,14 +161,20 @@ class Runner:
                 sysmon_log=http_settings.sysmon_log,
                 tshark_interface=http_settings.tshark_interface,
                 request_timeout_s=http_settings.request_timeout_s,
-                # Same setting SandboxController already uses for VM-level
-                # wait_for_guest_ready() (see the `controller = ...`
-                # construction below, in run()) -- reused here, not
-                # duplicated as a second config field, so
-                # HTTPGuestChannel.wait_until_ready()'s HTTP-level
-                # readiness poll shares one timeout budget concept with
-                # the VM-level one it always runs after.
-                guest_ready_timeout_s=settings.sandbox.guest_ready_timeout_s,
+                retry_attempts=http_settings.retry_attempts,
+                retry_backoff_s=http_settings.retry_backoff_s,
+                readiness_poll_interval_s=http_settings.readiness_poll_interval_s,
+                # Startup/readiness hardening pass: agent_ready_timeout_s
+                # is now its own dedicated Settings field (previously this
+                # reused settings.sandbox.guest_ready_timeout_s, the
+                # VM-level Guest-Additions timeout, on the reasoning that
+                # introducing a second timeout config wasn't worth it --
+                # real-VM validation showed the HTTP agent's own startup
+                # budget genuinely needs independent tuning from the
+                # VM-level check, so that reuse no longer holds).
+                guest_ready_timeout_s=http_settings.agent_ready_timeout_s,
+                network_ready_timeout_s=http_settings.network_ready_timeout_s,
+                network_poll_interval_s=http_settings.network_poll_interval_s,
             )
 
         logger.info("guest_backend=vbox -- using VBoxGuestChannel (compatibility backend)")

@@ -107,13 +107,15 @@ from adam.collectors.procmon import ProcmonCollector
 from adam.collectors.sysmon import SysmonCollector
 from adam.common.bus import EventBus
 from adam.common.config import Settings
-from adam.contracts.enums import Arm, NetworkMode, SessionStatus
+from adam.contracts.enums import Arm, MutationStatus, NetworkMode, SessionStatus, Verdict
 from adam.contracts.envelope import Envelope
 from adam.contracts.raw_event import RawEvent
 from adam.contracts.session import AnalysisSession, SampleRef, SessionConfig, SessionMetrics
-from adam.orchestrator.persistence import RawEventWriter
+from adam.orchestrator.persistence import JsonlWriter, RawEventWriter
+from adam.orchestrator.pipeline import PipelineResult, run_fusion_policy_deception
 from adam.sandbox.controller import SandboxController
 from adam.sandbox.guest.channel import GuestChannel, TelemetryArtifacts
+from adam.sandbox.guest.mutation_channel import RecordingGuestMutationChannel
 
 logger = logging.getLogger(__name__)
 
@@ -229,7 +231,13 @@ class SessionOrchestrator:
         except Exception:
             logger.exception("failed to publish SessionLifecycle(%s) for session=%s", status.value, session_id)
 
-    async def _pump(self, collector: BaseCollector, session_id: str, writer: RawEventWriter) -> None:
+    async def _pump(
+        self,
+        collector: BaseCollector,
+        session_id: str,
+        writer: RawEventWriter,
+        collected: list[RawEvent] | None = None,
+    ) -> None:
         """
         The "thin wrapper" the roadmap's Phase 2 notes describe: drains one
         collector's iter_events() for the lifetime of the session.
@@ -242,12 +250,19 @@ class SessionOrchestrator:
         bearing on durability, but the reverse ordering keeps that
         guarantee true by construction rather than by coincidence.
 
-        correlation_id policy: since Fusion (which would normally assign a
-        shared correlation_id across a cluster of related raw events) does
-        not exist yet, each RawEvent's own event_id is used as its
-        correlation_id -- every event starts as its own correlation chain,
-        joinable later. Disclosed placeholder, not a claim this is Fusion's
-        real correlation logic.
+        correlation_id policy: since Fusion does not assign a shared
+        correlation_id across a cluster of related raw events (it operates
+        on `adam.fusion.models.RawEvent`, not this contract type -- see
+        adam/fusion/adapter.py), each RawEvent's own event_id is used as
+        its correlation_id here. Every event starts as its own correlation
+        chain, joinable later.
+
+        `collected`: when supplied (adam.orchestrator.pipeline's caller),
+        every successfully-persisted event is also appended here, in
+        addition to being written/published -- this is how run_session()
+        gathers the session's full RawEvent set for the batch
+        Fusion -> Policy -> Deception pass after capture completes, without
+        re-reading raw.jsonl back off disk.
         """
         async for event in collector.iter_events():
             try:
@@ -259,6 +274,9 @@ class SessionOrchestrator:
                     collector.source_name,
                 )
                 continue
+
+            if collected is not None:
+                collected.append(event)
 
             envelope: Envelope[RawEvent] = Envelope(
                 message_id=f"msg_{uuid.uuid4().hex}",
@@ -348,8 +366,15 @@ class SessionOrchestrator:
         guest_target_path = self._guest_target_path_for(sample)
 
         session_config = SessionConfig(
-            deception_enabled=False,  # Deception Engine (section 5.6, Dev C) does not exist yet
-            policy_ruleset="none",  # Policy Engine (section 5.5, Dev C) does not exist yet
+            # As of the Fusion/Policy/Deception pipeline integration
+            # (adam/orchestrator/pipeline.py), every session with any
+            # captured RawEvents runs the real batch pipeline -- "enabled"
+            # reflects that honestly. `not dry_run` because dry_run
+            # sessions produce DRY_RUN-verdict decisions and never actually
+            # execute a primitive, matching SessionConfig.deception_enabled's
+            # intended meaning.
+            deception_enabled=not config.policy.dry_run,
+            policy_ruleset=config.policy.ruleset_path,
             vm_profile=config.sandbox.vm_name,  # VMProfile/profiles.py does not exist yet -- vm_name stands in, disclosed
             timeout_seconds=sample_timeout_seconds,
             network_mode=NetworkMode.HOST_ONLY,  # not yet a real SandboxSettings field -- safest disclosed default
@@ -362,6 +387,13 @@ class SessionOrchestrator:
         error: str | None = None
         collectors_started = False
         pump_tasks: list[asyncio.Task[None]] = []
+        # Fed by every _pump() task below (both the constructor-injected and
+        # guest-driven paths) -- the full session RawEvent set, gathered in
+        # memory so the batch Fusion -> Policy -> Deception pass
+        # (adam.orchestrator.pipeline) after capture completes does not need
+        # to re-read raw.jsonl back off disk.
+        collected_events: list[RawEvent] = []
+        pipeline_result: PipelineResult = PipelineResult()
         # Phase 5: collectors GuestAgent builds AFTER detonate() (once
         # telemetry has actually been exported to real host paths), kept
         # separate from self._collectors/pump_tasks above -- which remain
@@ -398,7 +430,7 @@ class SessionOrchestrator:
                 # still get drained and persisted, not silently lost.
                 pump_tasks.append(
                     asyncio.create_task(
-                        self._pump(collector, session_id, writer),
+                        self._pump(collector, session_id, writer, collected_events),
                         name=f"adam.orchestrator.pump.{collector.source_name}",
                     )
                 )
@@ -491,7 +523,7 @@ class SessionOrchestrator:
                     collectors_started = True  # same reasoning as the constructor-injected loop above
                     guest_pump_tasks.append(
                         asyncio.create_task(
-                            self._pump(collector, session_id, writer),
+                            self._pump(collector, session_id, writer, collected_events),
                             name=f"adam.orchestrator.pump.{collector.source_name}",
                         )
                     )
@@ -555,6 +587,45 @@ class SessionOrchestrator:
 
             await writer.close()
 
+            # Batch Fusion -> Policy -> Deception pass (adam.orchestrator.
+            # pipeline) -- runs after teardown, over whatever RawEvents this
+            # session actually captured (collected_events, populated by
+            # every _pump() task above). Guarded like every other cleanup
+            # step in this method: a failure here must not turn a session
+            # that otherwise completed (or failed cleanly) into an
+            # exception escaping run_session() -- ARCHITECTURE.md section
+            # 14.2's "one component failing degrades, it does not abort."
+            if collected_events:
+                try:
+                    pipeline_result = await run_fusion_policy_deception(
+                        collected_events,
+                        session_id=session_id,
+                        ruleset_path=config.policy.ruleset_path,
+                        channel=RecordingGuestMutationChannel(session_id),
+                        global_confidence_gate=config.policy.global_confidence_gate,
+                        dry_run=config.policy.dry_run,
+                    )
+                except Exception:
+                    logger.exception(
+                        "session=%s Fusion/Policy/Deception pipeline raised unexpectedly -- "
+                        "raw.jsonl is unaffected; session result is unaffected",
+                        session_id,
+                    )
+                else:
+                    session_dir = self._artifacts_dir / session_id
+                    try:
+                        await JsonlWriter(session_dir / "semantic_events.jsonl").write_all(
+                            list(pipeline_result.semantic_events)
+                        )
+                        await JsonlWriter(session_dir / "decisions.jsonl").write_all(list(pipeline_result.decisions))
+                        await JsonlWriter(session_dir / "mutations.jsonl").write_all(list(pipeline_result.mutations))
+                    except Exception:
+                        logger.exception(
+                            "session=%s failed to persist pipeline artifacts (semantic_events/decisions/"
+                            "mutations.jsonl) -- pipeline results still reflected in session metrics",
+                            session_id,
+                        )
+
         ended_at = datetime.now(timezone.utc)
 
         return AnalysisSession(
@@ -566,6 +637,16 @@ class SessionOrchestrator:
             status=status,
             started_at=started_at,
             ended_at=ended_at,
-            metrics=SessionMetrics(raw_events=writer.count),
+            metrics=SessionMetrics(
+                raw_events=writer.count,
+                semantic_events=len(pipeline_result.semantic_events),
+                decisions_total=len(pipeline_result.decisions),
+                decisions_executed=sum(
+                    1 for decision in pipeline_result.decisions if decision.verdict == Verdict.EXECUTE
+                ),
+                mutations_applied=sum(
+                    1 for mutation in pipeline_result.mutations if mutation.status == MutationStatus.APPLIED
+                ),
+            ),
             error=error,
         )

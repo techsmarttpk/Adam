@@ -51,6 +51,7 @@ Error-handling design (read this before changing a method):
 
 from __future__ import annotations
 
+import logging
 from typing import Coroutine, Any
 
 from adam.contracts.interfaces import MutationRequest, MutationResult
@@ -58,6 +59,8 @@ from adam.contracts.session import SampleRef
 from adam.sandbox.state import SandboxOperationError, SandboxState, SandboxStateError
 from adam.sandbox.vbox.client import VBoxCommandError, VirtualBoxClient
 from adam.sandbox.vbox.models import VMOperationResult
+
+logger = logging.getLogger(__name__)
 
 
 class SandboxController:
@@ -166,10 +169,17 @@ class SandboxController:
 
             self._state = SandboxState.BOOTING
 
+            logger.info("sandbox: Waiting for VM... (vm=%s, timeout=%.1fs)", self._vm_name, self._boot_timeout)
             await self._step("start", self._client.start(self._vm_name, headless=True))
             await self._step(
                 "wait_for_state(running)",
                 self._client.wait_for_state(self._vm_name, "running", timeout=self._boot_timeout),
+            )
+            logger.info("sandbox: VM ready.")
+
+            logger.info(
+                "sandbox: Waiting for Guest Additions... (vm=%s, timeout=%.1fs)",
+                self._vm_name, self._guest_ready_timeout,
             )
             await self._step(
                 "wait_for_guest_ready",
@@ -180,6 +190,7 @@ class SandboxController:
                     timeout=self._guest_ready_timeout,
                 ),
             )
+            logger.info("sandbox: Guest Additions ready.")
         except SandboxOperationError:
             self._state = SandboxState.FAILED
             raise

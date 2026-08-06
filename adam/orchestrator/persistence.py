@@ -22,6 +22,8 @@ import asyncio
 from pathlib import Path
 from typing import TextIO
 
+from pydantic import BaseModel
+
 from adam.contracts.raw_event import RawEvent
 
 
@@ -75,3 +77,32 @@ class RawEventWriter:
         if self._file is not None:
             self._file.close()
             self._file = None
+
+
+class JsonlWriter:
+    """
+    Generic, one-shot JSONL writer for any Pydantic model -- used for the
+    Fusion/Policy/Deception pipeline's `semantic_events.jsonl`/
+    `decisions.jsonl`/`mutations.jsonl` artifacts (adam/orchestrator/
+    pipeline.py). Deliberately separate from `RawEventWriter` above rather
+    than a generalisation of it: `RawEventWriter` is durability-critical,
+    append-as-you-go, per-event-flushed (ADR-005) infrastructure that
+    existing callers/tests depend on byte-for-byte; this class is a small,
+    additive convenience for writing an already-complete, in-memory list
+    once batch pipeline processing finishes, and changes nothing about the
+    existing class's behavior or callers.
+    """
+
+    def __init__(self, path: str | Path) -> None:
+        self._path = Path(path)
+
+    async def write_all(self, records: list[BaseModel]) -> None:
+        """Creates the parent directory if needed and writes every record as one JSONL line, overwriting any prior file."""
+        await asyncio.to_thread(self._write_all_sync, records)
+
+    def _write_all_sync(self, records: list[BaseModel]) -> None:
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        with open(self._path, "w", encoding="utf-8") as handle:
+            for record in records:
+                handle.write(record.model_dump_json())
+                handle.write("\n")

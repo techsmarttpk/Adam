@@ -76,8 +76,14 @@ class SandboxSettings(BaseModel):
 
     vm_name: str
     snapshot_name: str = "clean"
-    boot_timeout_s: float = Field(default=60.0, gt=0)
-    guest_ready_timeout_s: float = Field(default=150.0, gt=0)
+    # Bumped 60.0 -> 200.0 / 150.0 -> 200.0 (startup/readiness hardening
+    # pass) -- real-VM validation found the guest significantly slower to
+    # boot than these original values assumed. Purely a tolerance increase:
+    # neither field changes what is checked, only how long ADAM waits
+    # before giving up, so a healthy-but-slow VM now has room to finish
+    # booting instead of spuriously failing prepare().
+    boot_timeout_s: float = Field(default=200.0, gt=0)
+    guest_ready_timeout_s: float = Field(default=200.0, gt=0)
 
     # No default -- absence must fail fast at Settings() construction,
     # not surface later as a guestcontrol authentication error. Never
@@ -161,7 +167,55 @@ class HttpGuestSettings(BaseModel):
 
     host: str = "127.0.0.1"
     port: int = 8765
-    request_timeout_s: float = Field(default=15.0, gt=0)
+    # Per-HTTP-call timeout. Bumped 15.0 -> 30.0 (startup/readiness
+    # hardening pass) -- a slow VM under load can be slow to answer any
+    # single request, not just /health, so this headroom applies to every
+    # call HTTPGuestChannel makes (verify_tools, start_captures, exports),
+    # not only the readiness stages below.
+    request_timeout_s: float = Field(default=30.0, gt=0)
+
+    # -- Startup/readiness hardening (see HTTPGuestChannel.wait_until_ready()
+    # and its new network-readiness stage) --
+    #
+    # agent_ready_timeout_s: total budget for the GET /health polling stage
+    # -- i.e. "the VM booted and the network is reachable, but is the
+    # guest-resident PowerShell HTTP agent (adam_agent.ps1) answering
+    # healthy yet." Previously this stage reused sandbox.guest_ready_timeout_s
+    # directly (avoiding "a second timeout config"); now split into its own
+    # field so the HTTP agent's own startup budget (which includes Windows
+    # user logon + Scheduled Task start + HttpListener bind, on top of
+    # whatever sandbox.guest_ready_timeout_s already budgets for VirtualBox
+    # Guest Additions) can be tuned independently of the VM-level check.
+    agent_ready_timeout_s: float = Field(default=200.0, gt=0)
+    # network_ready_timeout_s: total budget for the new network-readiness
+    # stage that runs BEFORE the /health polling loop -- a raw TCP-level
+    # reachability check against (host, port), distinguishing "the guest's
+    # network isn't up yet" from "the network is fine but the HTTP agent
+    # itself isn't answering," per the hardened startup sequence.
+    network_ready_timeout_s: float = Field(default=60.0, gt=0)
+    # network_poll_interval_s: retry cadence for the network-readiness
+    # stage. Separate from readiness_poll_interval_s below because a raw
+    # TCP connect attempt is heavier than an HTTP GET and doesn't need to
+    # be retried as aggressively.
+    network_poll_interval_s: float = Field(default=2.0, gt=0)
+    # readiness_poll_interval_s: retry cadence for the GET /health polling
+    # stage. Previously a constructor-only default on HTTPGuestChannel, not
+    # sourced from Settings at all -- promoted here so every timing knob in
+    # the startup path is configurable through config/default.toml per the
+    # hardening requirement, not just the timeouts.
+    readiness_poll_interval_s: float = Field(default=1.0, gt=0)
+
+    # retry_attempts / retry_backoff_s: applied to every individual HTTP
+    # call HTTPGuestChannel makes through _send_with_retry() (exponential
+    # backoff on a transient transport error -- connection reset, pool
+    # timeout, etc.). Bumped 3 -> 5 attempts and 0.2s -> 0.5s base backoff
+    # (startup/readiness hardening pass) -- previously these two were
+    # HTTPGuestChannel constructor defaults only, never actually wired to
+    # Settings/config/default.toml at all, so real runs always used the old
+    # hardcoded defaults regardless of configuration. Now real, configurable
+    # fields.
+    retry_attempts: int = Field(default=5, ge=1)
+    retry_backoff_s: float = Field(default=0.5, gt=0)
 
     # Mirrors of GuestToolsSettings' path/log fields, used only for
     # HTTPGuestChannel's verify_tools()/start_captures() calls (which
@@ -196,6 +250,23 @@ def _deep_merge_section(base: dict[str, Any], override: dict[str, Any]) -> dict[
         else:
             merged[section] = values
     return merged
+
+
+class PolicySettings(BaseModel):
+    """
+    ARCHITECTURE.md section 12.2's `[policy]` table. Added as part of the
+    Fusion/Policy/Deception live-pipeline integration
+    (adam/orchestrator/pipeline.py) -- previously `Settings` had no field
+    for this section at all, so `adam.policy.engine.PolicyEngine` could
+    only ever be constructed with hand-supplied arguments in tests, never
+    from real config. Every field has a default so `Settings()` remains
+    constructible with zero `[policy]` configuration, matching the same
+    posture as `GuestToolsSettings`.
+    """
+
+    ruleset_path: str = "rules/default"
+    global_confidence_gate: float = Field(default=0.60, ge=0.0, le=1.0)
+    dry_run: bool = False
 
 
 class _TomlConfigSource(PydanticBaseSettingsSource):
@@ -254,6 +325,7 @@ class Settings(BaseSettings):
 
     sandbox: SandboxSettings
     guest_tools: GuestToolsSettings = Field(default_factory=GuestToolsSettings)
+    policy: PolicySettings = Field(default_factory=PolicySettings)
 
     # Phase 5 (HTTP Guest Agent architecture) backend selector --
     # "vbox" (default): VBoxGuestChannel wrapping the existing,

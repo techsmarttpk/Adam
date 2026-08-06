@@ -115,6 +115,21 @@ class FakeGuestAgentServer:
         raise AssertionError(f"FakeGuestAgentServer: unhandled {method} {path}")
 
 
+async def _always_network_reachable() -> tuple[bool, str]:
+    """
+    Fake `network_prober` for tests that exercise HTTP-layer logic
+    (verify_tools/start_captures/stop_export_and_fetch/wait_until_ready's
+    HTTP stage) against httpx.MockTransport -- no real socket exists
+    behind "fake-guest:8765" or similar test hostnames, so the real
+    `_default_network_probe()` (a genuine TCP connect, independent of the
+    injected httpx client) would fail/hang against them. Injected exactly
+    like `client` already is, to keep the network-readiness stage out of
+    these tests' way -- its own behavior is covered separately below by
+    TestNetworkReadinessStage.
+    """
+    return True, "fake: network stage bypassed for this test"
+
+
 def _make_channel(fake: FakeGuestAgentServer, **overrides) -> HTTPGuestChannel:
     transport = httpx.MockTransport(fake.handler)
     client = httpx.AsyncClient(transport=transport, base_url="http://fake-guest:8765")
@@ -124,6 +139,7 @@ def _make_channel(fake: FakeGuestAgentServer, **overrides) -> HTTPGuestChannel:
         tshark_path="C:\\Program Files\\Wireshark\\tshark.exe",
         sysmon_log="Microsoft-Windows-Sysmon/Operational",
         client=client,
+        network_prober=_always_network_reachable,
     )
     defaults.update(overrides)
     return HTTPGuestChannel("http://fake-guest:8765", **defaults)
@@ -192,11 +208,16 @@ async def test_transport_error_never_raises() -> None:
         # verify_tools() now calls wait_until_ready() first (see
         # test_http_readiness.py-style tests below) -- against this
         # always-ConnectError handler that would otherwise poll /health
-        # for the full default 150s guest_ready_timeout_s. Small values
+        # for the full default 200s agent_ready_timeout_s. Small values
         # keep this "never raises" assertion fast without changing what
-        # it's actually testing.
+        # it's actually testing. network_prober bypasses the real TCP
+        # network-readiness stage (stage 1), which would otherwise try a
+        # genuine socket connect to a nonexistent "unreachable" host --
+        # independent of `client`/MockTransport entirely -- see
+        # _always_network_reachable()'s own docstring.
         guest_ready_timeout_s=0.05,
         readiness_poll_interval_s=0.01,
+        network_prober=_always_network_reachable,
     )
     report = await channel.verify_tools()
     assert report.procmon_available is False
@@ -318,6 +339,11 @@ def _readiness_channel(handler, **overrides) -> HTTPGuestChannel:
         client=client,
         guest_ready_timeout_s=0.2,
         readiness_poll_interval_s=0.01,
+        # These tests exercise stage 2 (GET /health polling) in isolation
+        # -- stage 1 (network readiness) is covered on its own by
+        # TestNetworkReadinessStage below, so bypass it here exactly like
+        # _make_channel() does.
+        network_prober=_always_network_reachable,
     )
     defaults.update(overrides)
     return HTTPGuestChannel("http://fake-guest:8765", **defaults)
@@ -447,3 +473,155 @@ async def test_verify_tools_folds_readiness_timeout_into_detail_without_raising(
     assert report.sysmon_log_available is False
     assert "agent" in report.detail
     assert "did not become healthy" in report.detail["agent"]
+
+
+# --------------------------------------------------------------------- #
+# Network-readiness stage (startup/readiness hardening pass) --
+# HTTPGuestChannel.wait_until_ready() now runs an explicit stage 1
+# (_wait_for_network(), raw TCP reachability) before stage 2 (GET /health
+# polling, covered above). These tests drive stage 1 via the injectable
+# `network_prober` (same reasoning `client` is injectable -- see
+# __init__'s docstring and _always_network_reachable()'s own docstring),
+# plus one set of tests against the real default TCP-connect prober
+# itself, against a real local socket (no mocks) so the actual
+# reachable/refused/unreachable classification logic is genuinely
+# exercised, not just its plumbing.
+# --------------------------------------------------------------------- #
+
+
+def _network_only_channel(network_prober, **overrides) -> HTTPGuestChannel:
+    """
+    A channel whose HTTP layer never actually gets exercised -- these
+    tests only care about `_wait_for_network()`'s own retry/timeout
+    behavior, so the httpx transport is a MockTransport that would raise
+    AssertionError if it were ever called (proving stage 2 never starts
+    when stage 1 fails).
+    """
+
+    def _unexpected_http_call(request: httpx.Request) -> httpx.Response:
+        raise AssertionError(
+            f"HTTP layer was called ({request.method} {request.url.path}) -- stage 2 (GET /health) "
+            "must not run until stage 1 (network readiness) has already succeeded."
+        )
+
+    transport = httpx.MockTransport(_unexpected_http_call)
+    client = httpx.AsyncClient(transport=transport, base_url="http://fake-guest:8765")
+    defaults = dict(
+        capture_dir="C:\\ADAM\\telemetry",
+        procmon_path=None,
+        tshark_path=None,
+        sysmon_log="Microsoft-Windows-Sysmon/Operational",
+        client=client,
+        network_prober=network_prober,
+        network_ready_timeout_s=0.2,
+        network_poll_interval_s=0.01,
+    )
+    defaults.update(overrides)
+    return HTTPGuestChannel("http://fake-guest:8765", **defaults)
+
+
+class TestNetworkReadinessStage:
+    async def test_network_unreachable_raises_before_ever_touching_http_layer(self) -> None:
+        """Proves stage ordering: a network stage that never succeeds must raise its own GuestTimeoutError and never fall through to GET /health at all (the MockTransport handler above would assert-fail if it did)."""
+        from adam.common.errors import GuestTimeoutError
+
+        async def _always_unreachable() -> tuple[bool, str]:
+            return False, "simulated: no route to host"
+
+        channel = _network_only_channel(_always_unreachable)
+        with pytest.raises(GuestTimeoutError) as excinfo:
+            await channel.wait_until_ready()
+        message = str(excinfo.value)
+        assert "network unavailable" in message
+        # Must read distinctly from stage 2's own timeout message (see
+        # test_wait_until_ready_timeout_raises_guest_timeout_error above).
+        assert "did not become healthy" not in message
+
+    async def test_network_prober_retries_then_succeeds_then_health_stage_runs(self) -> None:
+        """A prober that fails twice then succeeds should let wait_until_ready() proceed into (and complete) stage 2 -- proves retry really happens, not just the end state."""
+        calls = {"n": 0}
+
+        async def _flaky() -> tuple[bool, str]:
+            calls["n"] += 1
+            if calls["n"] < 3:
+                return False, "simulated: not reachable yet"
+            return True, "simulated: reachable"
+
+        def _healthy(request: httpx.Request) -> httpx.Response:
+            return _envelope({"status": "ok", "uptime_s": 0.1})
+
+        transport = httpx.MockTransport(_healthy)
+        client = httpx.AsyncClient(transport=transport, base_url="http://fake-guest:8765")
+        channel = HTTPGuestChannel(
+            "http://fake-guest:8765", capture_dir="C:\\ADAM\\telemetry",
+            procmon_path=None, tshark_path=None, sysmon_log="Microsoft-Windows-Sysmon/Operational",
+            client=client, network_prober=_flaky,
+            network_ready_timeout_s=0.2, network_poll_interval_s=0.01,
+            guest_ready_timeout_s=0.2, readiness_poll_interval_s=0.01,
+        )
+        await channel.wait_until_ready()
+        assert calls["n"] == 3
+
+    async def test_network_reachable_immediately_incurs_no_retry(self) -> None:
+        calls = {"n": 0}
+
+        async def _immediate() -> tuple[bool, str]:
+            calls["n"] += 1
+            return True, "simulated: reachable"
+
+        channel = _network_only_channel(_immediate)
+        # Swap the assert-fail transport for a real healthy one now that
+        # we actually want stage 2 to run and succeed too.
+        channel._client = httpx.AsyncClient(  # noqa: SLF001 -- test-only reach-in, same pattern as _readiness_channel's constructor injection would use if it needed a post-construction swap
+            transport=httpx.MockTransport(lambda r: _envelope({"status": "ok", "uptime_s": 0.1})),
+            base_url="http://fake-guest:8765",
+        )
+        await channel.wait_until_ready()
+        assert calls["n"] == 1
+
+
+class TestDefaultNetworkProbe:
+    """
+    Exercises HTTPGuestChannel._default_network_probe() -- the real,
+    production TCP-connect implementation used when no `network_prober`
+    is injected -- against real local sockets (no mocks), so the
+    reachable/refused/unreachable classification is genuinely proven, not
+    just its call-site plumbing (covered above).
+    """
+
+    async def test_open_port_is_reachable(self) -> None:
+        import asyncio as _asyncio
+
+        server = await _asyncio.start_server(lambda r, w: None, host="127.0.0.1", port=0)
+        host, port = server.sockets[0].getsockname()[:2]
+        try:
+            channel = HTTPGuestChannel(
+                f"http://{host}:{port}", capture_dir="C:\\ADAM\\telemetry",
+                procmon_path=None, tshark_path=None, sysmon_log="Microsoft-Windows-Sysmon/Operational",
+                client=httpx.AsyncClient(transport=httpx.MockTransport(lambda r: httpx.Response(200))),
+            )
+            reachable, detail = await channel._default_network_probe()  # noqa: SLF001 -- deliberately testing the private default implementation directly
+            assert reachable is True
+            assert "tcp connect succeeded" in detail
+        finally:
+            server.close()
+            await server.wait_closed()
+
+    async def test_closed_port_connection_refused_counts_as_reachable(self) -> None:
+        import asyncio as _asyncio
+
+        # Bind and immediately close -- gives us a real, currently-unused
+        # local port that will refuse connections deterministically.
+        server = await _asyncio.start_server(lambda r, w: None, host="127.0.0.1", port=0)
+        host, port = server.sockets[0].getsockname()[:2]
+        server.close()
+        await server.wait_closed()
+
+        channel = HTTPGuestChannel(
+            f"http://{host}:{port}", capture_dir="C:\\ADAM\\telemetry",
+            procmon_path=None, tshark_path=None, sysmon_log="Microsoft-Windows-Sysmon/Operational",
+            client=httpx.AsyncClient(transport=httpx.MockTransport(lambda r: httpx.Response(200))),
+        )
+        reachable, detail = await channel._default_network_probe()  # noqa: SLF001
+        assert reachable is True
+        assert "connection refused" in detail
