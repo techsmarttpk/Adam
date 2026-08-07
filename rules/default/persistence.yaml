@@ -1,0 +1,14 @@
+- id: RULE-021
+  version: "1.0.0"
+  description: >
+    Run key persistence attempt
+  when:
+    intent: PERSIST_RUN_KEY
+    confidence_gte: 0.70
+    custom: "predicates.distinct_registry_keys_over"
+  then:
+    action: PLANT_DECOY_RUN_KEY
+    priority: 70
+  budget:
+    max_per_session: 2
+    cooldown_seconds: 60

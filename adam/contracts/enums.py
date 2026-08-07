@@ -5,20 +5,22 @@ Every enum referenced by the frozen contract models (ARCHITECTURE.md
 section 7). This file has no dependencies beyond the stdlib -- per section
 5.1, `adam/contracts/` must not import anything from any other ADAM module.
 
-Scope note: this is Dev A's Phase 2 proposal per
-docs/dev-a-environment-and-roadmap.md ("Phase 2 -- Contracts for Your
-Slice"). It covers only the enums needed by `Envelope`, `RawEvent`,
-`AnalysisSession`, and `adam/contracts/interfaces.py`. Enums belonging to
-`SemanticEvent`, `PolicyDecision`, and `DeceptionAction`/`MutationResult`
-(section 7.3-7.5) are out of scope here -- those contracts are owned by the
-Fusion (Dev B) and Policy/Deception (Dev C) developers and are added to this
-package by their own reviewed PRs per section 10.2.
+Scope note: this covers enums needed by `Envelope`, `RawEvent`,
+`AnalysisSession`, and `adam/contracts/interfaces.py` (Dev A's scope), as
+well as enums owned by Dev C's Policy/Deception layer (`Verdict`,
+`MutationStatus`, `ChangeKind`). Additional enums belonging to
+`SemanticEvent` and `PolicyDecision` are added here by their respective
+owners per section 10.2.
 """
 
 from __future__ import annotations
 
 import enum
 
+
+# ---------------------------------------------------------------------------
+# Core / Sandbox / Collector enums  (Dev A scope)
+# ---------------------------------------------------------------------------
 
 class Source(enum.Enum):
     """RawEvent.source -- ARCHITECTURE.md section 7.2 table."""
@@ -97,3 +99,37 @@ class SessionStatus(enum.Enum):
     PARTIAL = "PARTIAL"
     FAILED = "FAILED"
     ABORTED = "ABORTED"
+
+
+# ---------------------------------------------------------------------------
+# Policy / Deception enums  (Dev C scope)
+# ---------------------------------------------------------------------------
+
+class Verdict(str, enum.Enum):
+    """Outcome of evaluating a PolicyDecision (§7.4)."""
+
+    EXECUTE = "EXECUTE"
+    SUPPRESSED_BUDGET = "SUPPRESSED_BUDGET"
+    SUPPRESSED_COOLDOWN = "SUPPRESSED_COOLDOWN"
+    SUPPRESSED_CONFIDENCE = "SUPPRESSED_CONFIDENCE"
+    SUPPRESSED_CONFLICT = "SUPPRESSED_CONFLICT"
+    DRY_RUN = "DRY_RUN"
+
+
+class MutationStatus(str, enum.Enum):
+    """Outcome of applying a deception primitive (§7.5)."""
+
+    APPLIED = "APPLIED"
+    PARTIAL = "PARTIAL"
+    FAILED = "FAILED"
+    REVERTED = "REVERTED"
+    SKIPPED = "SKIPPED"
+
+
+class ChangeKind(str, enum.Enum):
+    """The category of a single environmental change inside a MutationResult."""
+
+    REGISTRY = "REGISTRY"
+    FILE = "FILE"
+    NETWORK = "NETWORK"
+    PROCESS = "PROCESS"

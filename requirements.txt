@@ -5,24 +5,14 @@
 # Graph processing
 networkx>=3.4
 
-# Data models
-pydantic>=2.11
+# Data models & configuration
+pydantic>=2.11,<3
+pydantic-settings>=2.3,<3
 
 # Testing
 pytest>=8.3
 pytest-cov>=6.0
-
-# Formatting
-black>=25.0
-
-# Linting
-ruff>=0.12
-
-# Static type checking
-mypy>=1.16
-# Core configuration (Milestone 4 -- adam.common.config)
-pydantic>=2.7,<3
-pydantic-settings>=2.3,<3
+pytest-asyncio>=0.23
 
 # Collectors (Phase 7 -- adam.collectors)
 python-evtx>=0.8.1,<0.9
@@ -33,3 +23,13 @@ typer>=0.12,<1
 
 # HTTP Guest Agent channel (Phase 5 -- adam.sandbox.guest.http_channel)
 httpx>=0.27,<1
+PyYAML>=6.0
+
+# Formatting
+black>=25.0
+
+# Linting
+ruff>=0.12
+
+# Static type checking
+mypy>=1.16

@@ -1,0 +1,20 @@
+{
+  "semantic_id": "sem_01J8X4K3ES",
+  "session_id": "sess_test_0001",
+  "correlation_id": "corr_01J8X4K2ES",
+  "intent": "EVADE_SLEEP_SKIP",
+  "confidence": 0.85,
+  "severity": "HIGH",
+  "window_start": "2026-07-21T14:32:11.401220Z",
+  "window_end": "2026-07-21T14:32:13.902441Z",
+  "actor": {
+    "pid": 4812,
+    "image": "C:\\Users\\analyst\\AppData\\Local\\Temp\\sample.exe",
+    "guid": "{a1b2c3d4-0000-0000-0000-000000000001}"
+  },
+  "evidence": ["raw_01J8X4K2ES_01"],
+  "attck": { "tactic": "TA0005", "technique": "T1497" },
+  "detector": "SleepSkipDetector",
+  "features": {},
+  "caused_by_mutation": null
+}

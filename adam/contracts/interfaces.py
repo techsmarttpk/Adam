@@ -1,16 +1,20 @@
 """
 adam/contracts/interfaces.py
 
-Every ABC/Protocol Dev A's modules expose, in one place, per
-ARCHITECTURE.md section 9's folder hierarchy comment ("every ABC/Protocol
-in one place") and docs/dev-a-environment-and-roadmap.md's Phase 2 file
-list, which scopes this file to `ICollector` and `ISandboxController` only.
-`IFusionEngine`, `ISemanticDetector`, etc. (section 5.4 onward) belong to
-Dev B/C/D and are added here by their own Phase-2-equivalent PRs.
+Every ABC/Protocol in one place, per ARCHITECTURE.md section 9's folder
+hierarchy comment ("every ABC/Protocol in one place").
 
-Both Protocols are declared `@runtime_checkable` so `isinstance(obj, ...)`
-works for quick conformance checks (used by tests and by
-adam/sandbox/controller.py's own verification script), while static callers
+This file combines:
+- Dev A's scope: `ICollector` and `ISandboxController` with their supporting
+  types (`MutationRequest`, `MutationResult`, `ArtifactRef`) --
+  docs/dev-a-environment-and-roadmap.md Phase 2.
+- Dev C's scope: `IPolicyEngine`, `IRuleLoader`, `IPredicate`,
+  `IDeceptionEngine`, `IDeception`, `SessionContextProtocol` -- the ABCs for
+  the Policy and Deception boundary (§5.5, §5.6, §11.1).
+
+Both ICollector and ISandboxController are declared `@runtime_checkable` so
+`isinstance(obj, ...)` works for quick conformance checks (used by tests and
+by adam/sandbox/controller.py's own verification script), while static callers
 still get full `mypy --strict` structural checking against the Protocol.
 
 MutationRequest / MutationResult / ArtifactRef
@@ -32,6 +36,7 @@ section 10.2.
 
 from __future__ import annotations
 
+from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
 from datetime import datetime
 from typing import Any, Protocol, runtime_checkable
@@ -41,6 +46,10 @@ from pydantic import BaseModel, ConfigDict, Field
 from adam.contracts.raw_event import RawEvent
 from adam.contracts.session import SampleRef
 
+
+# ---------------------------------------------------------------------------
+# Supporting models for ISandboxController  (Dev A scope)
+# ---------------------------------------------------------------------------
 
 class MutationRequest(BaseModel):
     """
@@ -101,6 +110,10 @@ class ArtifactRef(BaseModel):
     size_bytes: int = Field(ge=0)
 
 
+# ---------------------------------------------------------------------------
+# Protocols — Sandbox / Collectors  (Dev A scope)
+# ---------------------------------------------------------------------------
+
 @runtime_checkable
 class ICollector(Protocol):
     """
@@ -156,4 +169,71 @@ class ISandboxController(Protocol):
         Any state -> TEARDOWN -> COLD. Idempotent and safe to call from a
         `finally` block after any failure (section 14.4). Never raises.
         """
+        ...
+
+
+# ---------------------------------------------------------------------------
+# ABCs — Policy / Deception  (Dev C scope)
+# ---------------------------------------------------------------------------
+
+class IPolicyEngine(ABC):
+    """Pure function of (event, session context) -> decisions. No I/O (P4)."""
+
+    @abstractmethod
+    def evaluate(
+        self, event: "SemanticEvent", context: "SessionContextProtocol"
+    ) -> list["PolicyDecision"]:
+        ...
+
+
+class IRuleLoader(ABC):
+    @abstractmethod
+    def load(self, ruleset_path: str) -> list[dict[str, Any]]:
+        """Load and validate raw rule dicts from a ruleset directory."""
+        ...
+
+
+class IPredicate(ABC):
+    """A named, pure, side-effect-free escape hatch used inside `when.custom`."""
+
+    @abstractmethod
+    def __call__(self, event: "SemanticEvent", context: "SessionContextProtocol") -> bool:
+        ...
+
+
+class IDeceptionEngine(ABC):
+    @abstractmethod
+    def execute(self, decision: "PolicyDecision") -> MutationResult:
+        ...
+
+
+class IDeception(ABC):
+    """One deception primitive. Every primitive implements both directions."""
+
+    @abstractmethod
+    def apply(self, parameters: dict[str, Any]) -> MutationResult:
+        ...
+
+    @abstractmethod
+    def revert(self, mutation: MutationResult) -> MutationResult:
+        ...
+
+
+class SessionContextProtocol(ABC):
+    """
+    Minimal shape Policy needs from session context (budget consumed,
+    cooldowns, prior decisions). Passed in explicitly per ADR-004 — never
+    held as hidden mutable state inside the engine.
+    """
+
+    @abstractmethod
+    def budget_remaining(self, rule_id: str, max_per_session: int) -> int:
+        ...
+
+    @abstractmethod
+    def cooldown_active(self, rule_id: str, cooldown_seconds: float) -> bool:
+        ...
+
+    @abstractmethod
+    def record_decision(self, decision: "PolicyDecision") -> None:
         ...

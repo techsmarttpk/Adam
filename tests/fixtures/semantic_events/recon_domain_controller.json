@@ -1,0 +1,24 @@
+{
+  "semantic_id": "sem_01J8X4K3A1",
+  "session_id": "sess_test_0001",
+  "correlation_id": "corr_01J8X4K2M9",
+  "intent": "RECON_DOMAIN_CONTROLLER",
+  "confidence": 0.87,
+  "severity": "MEDIUM",
+  "window_start": "2026-07-21T14:32:11.401220Z",
+  "window_end": "2026-07-21T14:32:13.902441Z",
+  "actor": {
+    "pid": 4812,
+    "image": "C:\\Users\\analyst\\AppData\\Local\\Temp\\sample.exe",
+    "guid": "{a1b2c3d4-0000-0000-0000-000000000001}"
+  },
+  "evidence": ["raw_01J8X4K2M9P3QR7T", "raw_01J8X4K2N4", "raw_01J8X4K2P8"],
+  "attck": { "tactic": "TA0007", "technique": "T1018" },
+  "detector": "DomainReconDetector@1.2",
+  "features": {
+    "distinct_registry_keys": 3,
+    "ldap_attempts": 2,
+    "all_failed": true
+  },
+  "caused_by_mutation": null
+}
