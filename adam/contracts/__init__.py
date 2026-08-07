@@ -42,6 +42,7 @@ from adam.contracts.interfaces import (
     MutationRequest,
     MutationResult,
     SessionContextProtocol,
+    IReportGenerator,
 )
 from adam.contracts.raw_event import ProcessInfo, RawEvent
 from adam.contracts.session import AnalysisSession, SampleRef, SessionConfig, SessionMetrics, SessionLifecycle
@@ -78,4 +79,5 @@ __all__ = [
     "IPredicate",
     "IRuleLoader",
     "SessionContextProtocol",
+    "IReportGenerator",
 ]

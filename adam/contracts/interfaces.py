@@ -212,3 +212,23 @@ class SessionContextProtocol(ABC):
     @abstractmethod
     def record_decision(self, decision: "PolicyDecision") -> None:
         ...
+
+
+class IReportGenerator(Protocol):
+    """
+    ARCHITECTURE.md §5.9: Report Generator.
+    Turns a completed session into artefacts (timeline, ledger, coverage, etc.)
+    and handles the research-critical behavioural yield comparison.
+    """
+    
+    async def generate(self, session_id: str, format: str = "json") -> str:
+        """
+        Produces a single-session report.
+        """
+        ...
+        
+    async def generate_comparison(self, experiment_id: str) -> str:
+        """
+        Computes the delta between two sessions sharing an experiment_id with different arms.
+        """
+        ...

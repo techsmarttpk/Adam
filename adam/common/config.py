@@ -192,6 +192,13 @@ class DatabaseSettings(BaseModel):
     queue_size: int = Field(default=10000, gt=0)
 
 
+class DeceptionSettings(BaseModel):
+    default_causal_window_ms: int = Field(default=30000, gt=0)
+    plausibility_warn_below: float = Field(default=0.5, ge=0.0, le=1.0)
+    enable_clock_manipulation: bool = False
+
+
+
 def _deep_merge_section(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
     """
     One-level merge suitable for this TOML shape (top-level [section]
@@ -280,6 +287,7 @@ class Settings(BaseSettings):
     guest_backend: Literal["vbox", "http"] = "vbox"
     http_guest: HttpGuestSettings = Field(default_factory=HttpGuestSettings)
     db: DatabaseSettings = Field(default_factory=DatabaseSettings)
+    deception: DeceptionSettings = Field(default_factory=DeceptionSettings)
 
     @classmethod
     def settings_customise_sources(

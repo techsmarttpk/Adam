@@ -121,6 +121,39 @@ async def get_session_decisions(session_id: str):
 async def get_session_mutations(session_id: str):
     return sessions_store.get(session_id, {}).get("mutations", [])
 
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
+
+@app.get("/sessions/{session_id}/report")
+async def get_session_report(session_id: str, format: str = "json"):
+    from adam.api.deps import deps
+    if not deps.report_generator:
+        return JSONResponse(content={"error": "Report generator not initialized"}, status_code=500)
+    try:
+        report = await deps.report_generator.generate(session_id, format)
+        if format == "html":
+            return HTMLResponse(content=report)
+        elif format == "md":
+            return PlainTextResponse(content=report, media_type="text/markdown")
+        else:
+            return JSONResponse(content=json.loads(report))
+    except ValueError as e:
+        return JSONResponse(content={"error": str(e)}, status_code=404)
+    except Exception as e:
+        return JSONResponse(content={"error": str(e)}, status_code=500)
+
+@app.get("/experiments/{experiment_id}/comparison")
+async def get_experiment_comparison(experiment_id: str):
+    from adam.api.deps import deps
+    if not deps.report_generator:
+        return JSONResponse(content={"error": "Report generator not initialized"}, status_code=500)
+    try:
+        report = await deps.report_generator.generate_comparison(experiment_id)
+        return JSONResponse(content=json.loads(report))
+    except ValueError as e:
+        return JSONResponse(content={"error": str(e)}, status_code=404)
+    except Exception as e:
+        return JSONResponse(content={"error": str(e)}, status_code=500)
+
 async def run_deterministic_simulation(session_id: str, seed: int):
     from adam.api.deps import deps
     import uuid

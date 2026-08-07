@@ -18,8 +18,9 @@ from adam.contracts.policy_decision import PolicyDecision
 from adam.contracts.raw_event import RawEvent
 from adam.contracts.semantic_event import SemanticEvent, Actor, AttckRef
 from adam.contracts.enums import Verdict
-from adam.db.repositories.sqlite import SQLiteSessionRepository
+from adam.db.repositories.sqlite import SQLiteSessionRepository, SQLiteEventRepository, SQLiteDecisionRepository, SQLiteMutationRepository
 from adam.db.writer import DBWriter
+from adam.reporting.generator import ReportGenerator
 from adam.deception.engine import DeceptionEngine
 from adam.fusion.engine import EventFusionEngine
 from adam.fusion.models import RawEvent as FusionRawEvent
@@ -40,6 +41,7 @@ class Dependencies:
         self.policy: PolicyEngine | None = None
         self.session_repo: SQLiteSessionRepository | None = None
         self.session_contexts: dict[str, SessionContext] = {}
+        self.report_generator: ReportGenerator | None = None
 
 deps = Dependencies()
 
@@ -60,6 +62,18 @@ async def init_dependencies() -> None:
     deps.fusion = EventFusionEngine()
     deps.policy = PolicyEngine("rules/default")
     deps.session_repo = SQLiteSessionRepository(deps.db_conn)
+    
+    event_repo = SQLiteEventRepository(deps.db_conn)
+    decision_repo = SQLiteDecisionRepository(deps.db_conn)
+    mutation_repo = SQLiteMutationRepository(deps.db_conn)
+    
+    deps.report_generator = ReportGenerator(
+        session_repo=deps.session_repo,
+        event_repo=event_repo,
+        decision_repo=decision_repo,
+        mutation_repo=mutation_repo,
+        plausibility_warn_below=settings.deception.plausibility_warn_below
+    )
     
     # 2. Handlers for Bus wiring
     async def handle_raw_event(env: Envelope[RawEvent]) -> None:
