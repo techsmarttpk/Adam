@@ -101,29 +101,29 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-@app.get("/sessions")
+@app.get("/api/v1/sessions")
 async def get_sessions():
     return {"sessions": list(sessions_store.keys())}
 
-@app.get("/sessions/{session_id}")
+@app.get("/api/v1/sessions/{session_id}")
 async def get_session(session_id: str):
     return sessions_store.get(session_id, {})
 
-@app.get("/sessions/{session_id}/events")
+@app.get("/api/v1/sessions/{session_id}/events")
 async def get_session_events(session_id: str):
     return sessions_store.get(session_id, {}).get("events", [])
 
-@app.get("/sessions/{session_id}/decisions")
+@app.get("/api/v1/sessions/{session_id}/decisions")
 async def get_session_decisions(session_id: str):
     return sessions_store.get(session_id, {}).get("decisions", [])
 
-@app.get("/sessions/{session_id}/mutations")
+@app.get("/api/v1/sessions/{session_id}/mutations")
 async def get_session_mutations(session_id: str):
     return sessions_store.get(session_id, {}).get("mutations", [])
 
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 
-@app.get("/sessions/{session_id}/report")
+@app.get("/api/v1/sessions/{session_id}/report")
 async def get_session_report(session_id: str, format: str = "json"):
     from adam.api.deps import deps
     if not deps.report_generator:
@@ -141,7 +141,7 @@ async def get_session_report(session_id: str, format: str = "json"):
     except Exception as e:
         return JSONResponse(content={"error": str(e)}, status_code=500)
 
-@app.get("/experiments/{experiment_id}/comparison")
+@app.get("/api/v1/experiments/{experiment_id}/comparison")
 async def get_experiment_comparison(experiment_id: str):
     from adam.api.deps import deps
     if not deps.report_generator:
@@ -219,7 +219,7 @@ async def run_deterministic_simulation(session_id: str, seed: int):
     ))
 
 
-@app.post("/sessions/simulate")
+@app.post("/api/v1/sessions/simulate")
 async def simulate_session(background_tasks: BackgroundTasks, file: UploadFile = File(...)):
     content = await file.read()
     sha256 = hashlib.sha256(content).hexdigest()
@@ -271,7 +271,7 @@ async def simulate_session(background_tasks: BackgroundTasks, file: UploadFile =
     background_tasks.add_task(create_and_run)
     return {"session_id": session_id, "status": "RUNNING"}
 
-@app.get("/stream")
+@app.get("/api/v1/stream")
 async def sse_stream(request: Request):
     q = asyncio.Queue()
     clients.append(q)

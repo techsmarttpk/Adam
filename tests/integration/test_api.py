@@ -17,16 +17,16 @@ def client():
         yield c
 
 def test_get_sessions(client):
-    response = client.get("/sessions")
+    response = client.get("/api/v1/sessions")
     assert response.status_code == 200
     assert "sessions" in response.json()
 
 def test_get_session_events(client):
-    response = client.get("/sessions/fake_session/events")
+    response = client.get("/api/v1/sessions/fake_session/events")
     assert response.status_code == 200
     assert response.json() == []
 
 def test_get_session_decisions(client):
-    response = client.get("/sessions/fake_session/decisions")
+    response = client.get("/api/v1/sessions/fake_session/decisions")
     assert response.status_code == 200
     assert response.json() == []
