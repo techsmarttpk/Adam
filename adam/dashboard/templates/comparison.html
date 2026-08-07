@@ -1,0 +1,34 @@
+{% extends "layout.html" %}
+{% block content %}
+<h1>Experiment Comparison: {{ experiment_id }}</h1>
+
+<div class="card">
+    <h2>Yield Summary</h2>
+    <p><strong>Delta Semantic Events:</strong> {{ data.delta_semantic_events }}</p>
+    
+    <h3>Distinct Intents Yield</h3>
+    <ul>
+        {% for intent in data.distinct_intents_yield %}
+        <li><span class="badge">{{ intent }}</span></li>
+        {% endfor %}
+        {% if not data.distinct_intents_yield %}
+        <li>None</li>
+        {% endif %}
+    </ul>
+
+    <h3>Distinct Networks Yield</h3>
+    <ul>
+        {% for net in data.distinct_networks_yield %}
+        <li><span class="badge">{{ net }}</span></li>
+        {% endfor %}
+        {% if not data.distinct_networks_yield %}
+        <li>None</li>
+        {% endif %}
+    </ul>
+</div>
+
+<div class="card">
+    <h2>Raw Data</h2>
+    <pre>{{ data | tojson(indent=2) }}</pre>
+</div>
+{% endblock %}

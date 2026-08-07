@@ -1,0 +1,70 @@
+{% extends "layout.html" %}
+{% block content %}
+<h1>Session Detail: {{ session_id }}</h1>
+
+<div class="card">
+    <h2>Metadata</h2>
+    <pre>{{ session | tojson(indent=2) if session else 'No metadata found' }}</pre>
+</div>
+
+<div class="card">
+    <h2>Live Event Feed</h2>
+    <div id="live-feed" style="max-height: 400px; overflow-y: auto; background: #222; color: #0f0; padding: 10px; font-family: monospace;">
+        <!-- SSE events will appear here -->
+    </div>
+</div>
+
+<div class="card">
+    <h2>Mutation Timeline</h2>
+    <ul>
+        {% for mut in mutations %}
+        <li>{{ mut.applied_at }} - <strong>{{ mut.primitive }}</strong> (Status: {{ mut.status }})</li>
+        {% endfor %}
+    </ul>
+</div>
+
+<div class="card">
+    <h2>Decision Ledger</h2>
+    <ul>
+        {% for dec in decisions %}
+        <li>{{ dec.decided_at }} - <strong>{{ dec.rule_id }}</strong>: {{ dec.verdict }}</li>
+        {% endfor %}
+    </ul>
+</div>
+
+<script>
+    const feed = document.getElementById('live-feed');
+    const evtSource = new EventSource("/api/v1/stream");
+    
+    evtSource.addEventListener("SemanticEvent", function(e) {
+        const data = JSON.parse(e.data);
+        if (data.session_id === "{{ session_id }}") {
+            const el = document.createElement("div");
+            el.textContent = `[EVENT] ${data.intent} (Confidence: ${data.confidence})`;
+            feed.appendChild(el);
+            feed.scrollTop = feed.scrollHeight;
+        }
+    });
+
+    evtSource.addEventListener("PolicyDecision", function(e) {
+        const data = JSON.parse(e.data);
+        if (data.session_id === "{{ session_id }}") {
+            const el = document.createElement("div");
+            el.textContent = `[DECISION] Rule ${data.rule_id} -> ${data.verdict}`;
+            feed.appendChild(el);
+            feed.scrollTop = feed.scrollHeight;
+        }
+    });
+
+    evtSource.addEventListener("MutationResult", function(e) {
+        const data = JSON.parse(e.data);
+        if (data.session_id === "{{ session_id }}") {
+            const el = document.createElement("div");
+            el.textContent = `[MUTATION] ${data.primitive} -> ${data.status}`;
+            el.style.color = "yellow";
+            feed.appendChild(el);
+            feed.scrollTop = feed.scrollHeight;
+        }
+    });
+</script>
+{% endblock %}

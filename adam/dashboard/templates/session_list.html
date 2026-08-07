@@ -1,0 +1,28 @@
+{% extends "layout.html" %}
+{% block content %}
+<h1>Sessions</h1>
+<table>
+    <thead>
+        <tr>
+            <th>Session ID</th>
+            <th>Actions</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for sid in sessions %}
+        <tr>
+            <td>{{ sid }}</td>
+            <td>
+                <a href="/dashboard/sessions/{{ sid }}">View</a> | 
+                <a href="/dashboard/sessions/{{ sid }}/report">Report</a>
+            </td>
+        </tr>
+        {% endfor %}
+        {% if not sessions %}
+        <tr>
+            <td colspan="2">No sessions found.</td>
+        </tr>
+        {% endif %}
+    </tbody>
+</table>
+{% endblock %}

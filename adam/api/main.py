@@ -12,6 +12,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, Request, UploadFile, File, BackgroundTasks
 from fastapi.responses import StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 import hashlib
 import random
@@ -288,3 +289,7 @@ async def sse_stream(request: Request):
                 clients.remove(q)
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+from adam.dashboard.router import dashboard_router
+app.include_router(dashboard_router)
+app.mount("/dashboard/static", StaticFiles(directory=Path(__file__).parent.parent / "dashboard" / "static"), name="static")
