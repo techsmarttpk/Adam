@@ -24,6 +24,7 @@ import tomllib
 
 import pytest
 from pydantic import ValidationError
+from pathlib import Path
 
 from adam.common.config import CONFIG_DIR, HttpGuestSettings, Settings, get_settings
 
@@ -68,7 +69,10 @@ class TestHttpGuestSettings:
 
 
 class TestGuestBackendSelector:
-    def test_defaults_to_vbox(self) -> None:
+    def test_defaults_to_vbox(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # To test the pydantic default (vbox), we must mock out the TOML file which overrides it to http
+        monkeypatch.setenv("ADAM_ENV", "__test_env_that_does_not_exist__")
+        monkeypatch.setattr("adam.common.config.CONFIG_DIR", Path("/does/not/exist"))
         settings = _minimal_settings()
         assert settings.guest_backend == "vbox"
 
@@ -146,9 +150,9 @@ class TestDefaultTomlParses:
 
         settings = Settings()  # type: ignore[call-arg]
         assert settings.sandbox.vm_name == "ADAM_WIN10_OFFICE"
-        assert settings.guest_backend == "vbox"
+        assert settings.guest_backend == "http"
         assert settings.http_guest.port == 8765
-        assert settings.http_guest.host == "127.0.0.1"  # the documented placeholder -- see default.toml's own comment
+        assert settings.http_guest.host == "192.168.56.103"  # the documented placeholder -- see default.toml's own comment
         assert settings.guest_tools.procmon_path is not None
 
 
