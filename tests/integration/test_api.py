@@ -3,6 +3,11 @@ tests/integration/test_api.py
 """
 
 import pytest
+import os
+
+os.environ["ADAM__SANDBOX__GUEST_USERNAME"] = "tester"
+os.environ["ADAM__SANDBOX__GUEST_PASSWORD"] = "not-a-real-secret"
+
 from fastapi.testclient import TestClient
 from adam.api.main import app
 
