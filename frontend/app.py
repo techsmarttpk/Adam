@@ -68,21 +68,24 @@ if st.session_state.session_id:
                     st.subheader("Semantic Events (Fusion)")
                     if events:
                         df_events = pd.DataFrame(events)
-                        st.dataframe(df_events[["semantic_id", "intent", "confidence", "severity"]], use_container_width=True)
+                        events_cols = [c for c in ["semantic_id", "intent", "confidence", "severity"] if c in df_events.columns]
+                        st.dataframe(df_events[events_cols] if events_cols else df_events, use_container_width=True)
                     else:
                         st.info("No events detected yet.")
                         
                     st.subheader("Policy Decisions")
                     if decisions:
                         df_dec = pd.DataFrame(decisions)
-                        st.dataframe(df_dec[["rule_id", "verdict", "action", "confidence"]], use_container_width=True)
+                        dec_cols = [c for c in ["rule_id", "verdict", "action", "rationale"] if c in df_dec.columns]
+                        st.dataframe(df_dec[dec_cols] if dec_cols else df_dec, use_container_width=True)
                     else:
                         st.info("No decisions made yet.")
                         
                     st.subheader("Deception Mutations")
                     if mutations:
                         df_mut = pd.DataFrame(mutations)
-                        st.dataframe(df_mut[["status", "plausibility_score", "changes_made"]], use_container_width=True)
+                        mut_cols = [c for c in ["status", "plausibility_score", "changes_made"] if c in df_mut.columns]
+                        st.dataframe(df_mut[mut_cols] if mut_cols else df_mut, use_container_width=True)
                     else:
                         st.info("No mutations applied yet.")
                 else:
