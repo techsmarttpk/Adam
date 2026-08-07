@@ -47,19 +47,26 @@ orchestrator: LiveOrchestrator = None  # type: ignore
 async def lifespan(app: FastAPI):
     global orchestrator
     
-    sysmon_path = os.getenv("SYSMON_PATH", r"C:\VM_Logs\sysmon.evtx")
-    procmon_path = os.getenv("PROCMON_PATH", r"C:\VM_Logs\procmon.csv")
-    network_path = os.getenv("NETWORK_PATH", r"C:\VM_Logs\network.ek")
+    enable_live = os.getenv("ENABLE_LIVE_COLLECTORS", "0") == "1"
     
-    # Touch files if they don't exist to avoid OS errors in file-tailing
-    for path in [sysmon_path, procmon_path, network_path]:
-        try:
-            os.makedirs(os.path.dirname(path), exist_ok=True)
-            if not os.path.exists(path):
-                with open(path, "w") as f:
-                    pass
-        except Exception:
-            pass
+    if enable_live:
+        sysmon_path = os.getenv("SYSMON_PATH", r"C:\VM_Logs\sysmon.evtx")
+        procmon_path = os.getenv("PROCMON_PATH", r"C:\VM_Logs\procmon.csv")
+        network_path = os.getenv("NETWORK_PATH", r"C:\VM_Logs\network.ek")
+        
+        # Touch files if they don't exist to avoid OS errors in file-tailing
+        for path in [sysmon_path, procmon_path, network_path]:
+            try:
+                os.makedirs(os.path.dirname(path), exist_ok=True)
+                if not os.path.exists(path):
+                    with open(path, "w") as f:
+                        pass
+            except Exception:
+                pass
+    else:
+        sysmon_path = ""
+        procmon_path = ""
+        network_path = ""
 
     orchestrator = LiveOrchestrator(
         sysmon_path=sysmon_path,
