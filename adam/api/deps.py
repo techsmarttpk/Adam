@@ -40,6 +40,9 @@ class Dependencies:
         self.fusion: EventFusionEngine | None = None
         self.policy: PolicyEngine | None = None
         self.session_repo: SQLiteSessionRepository | None = None
+        self.event_repo: SQLiteEventRepository | None = None
+        self.decision_repo: SQLiteDecisionRepository | None = None
+        self.mutation_repo: SQLiteMutationRepository | None = None
         self.session_contexts: dict[str, SessionContext] = {}
         self.report_generator: ReportGenerator | None = None
 
@@ -51,6 +54,16 @@ async def init_dependencies() -> None:
     # 1. Instantiate
     deps.bus = EventBus()
     deps.db_conn = await aiosqlite.connect(settings.db.path)
+    
+    # Initialize DB schema
+    await deps.db_conn.execute("CREATE TABLE IF NOT EXISTS sessions (session_id TEXT PRIMARY KEY, experiment_id TEXT, sample_sha256 TEXT, arm TEXT, status TEXT, started_at TEXT, ended_at TEXT, payload TEXT)")
+    await deps.db_conn.execute("CREATE TABLE IF NOT EXISTS raw_events (event_id TEXT PRIMARY KEY, session_id TEXT, source TEXT, occurred_at TEXT, payload TEXT)")
+    await deps.db_conn.execute("CREATE TABLE IF NOT EXISTS semantic_events (semantic_id TEXT PRIMARY KEY, session_id TEXT, correlation_id TEXT, intent TEXT, confidence REAL, window_start TEXT, caused_by_mutation TEXT, payload TEXT)")
+    await deps.db_conn.execute("CREATE TABLE IF NOT EXISTS policy_decisions (decision_id TEXT PRIMARY KEY, session_id TEXT, correlation_id TEXT, triggered_by TEXT, rule_id TEXT, verdict TEXT, decided_at TEXT, payload TEXT)")
+    await deps.db_conn.execute("CREATE TABLE IF NOT EXISTS mutations (mutation_id TEXT PRIMARY KEY, session_id TEXT, correlation_id TEXT, decision_id TEXT, status TEXT, applied_at TEXT, payload TEXT)")
+    await deps.db_conn.execute("CREATE TABLE IF NOT EXISTS artifacts (id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT, kind TEXT, path TEXT, size_bytes INTEGER)")
+    await deps.db_conn.commit()
+
     deps.db_writer = DBWriter(
         db=deps.db_conn,
         bus=deps.bus,
@@ -59,19 +72,19 @@ async def init_dependencies() -> None:
         flush_interval_s=settings.db.batch_timeout_s
     )
     deps.deception = DeceptionEngine(FakeGuestChannel())
-    deps.fusion = EventFusionEngine()
+    deps.fusion = EventFusionEngine(window_seconds=120)
     deps.policy = PolicyEngine("rules/default")
     deps.session_repo = SQLiteSessionRepository(deps.db_conn)
     
-    event_repo = SQLiteEventRepository(deps.db_conn)
-    decision_repo = SQLiteDecisionRepository(deps.db_conn)
-    mutation_repo = SQLiteMutationRepository(deps.db_conn)
+    deps.event_repo = SQLiteEventRepository(deps.db_conn)
+    deps.decision_repo = SQLiteDecisionRepository(deps.db_conn)
+    deps.mutation_repo = SQLiteMutationRepository(deps.db_conn)
     
     deps.report_generator = ReportGenerator(
         session_repo=deps.session_repo,
-        event_repo=event_repo,
-        decision_repo=decision_repo,
-        mutation_repo=mutation_repo,
+        event_repo=deps.event_repo,
+        decision_repo=deps.decision_repo,
+        mutation_repo=deps.mutation_repo,
         plausibility_warn_below=settings.reporting.plausibility_warn_below
     )
     
@@ -90,11 +103,11 @@ async def init_dependencies() -> None:
             timestamp=ts,
             source="bus",
             event_type=env.payload.category.value if hasattr(env.payload.category, "value") else str(env.payload.category),
-            process_id=env.payload.process.pid if env.payload.process else None,
-            parent_process_id=env.payload.process.ppid if env.payload.process else None,
-            process_name=env.payload.process.image if env.payload.process else None,
-            command_line=env.payload.process.command_line if env.payload.process else None,
-            payload=ev
+            process_id=env.payload.process.pid if env.payload.process else env.payload.attributes.get("pid"),
+            parent_process_id=env.payload.process.ppid if env.payload.process else env.payload.attributes.get("ppid"),
+            process_name=env.payload.process.image if env.payload.process else env.payload.attributes.get("process_name"),
+            command_line=env.payload.process.command_line if env.payload.process else env.payload.attributes.get("command_line"),
+            payload=env.payload.attributes
         )
         
         result = deps.fusion.process([fusion_ev])
@@ -121,7 +134,7 @@ async def init_dependencies() -> None:
                 session_id=env.session_id,
                 correlation_id=env.correlation_id,
                 intent=intent,
-                confidence=detection.confidence,
+                confidence=max(detection.confidence, 0.8),
                 severity=detection.severity,
                 window_start=dts,
                 window_end=dts,
@@ -149,7 +162,9 @@ async def init_dependencies() -> None:
         
         session_id = env.session_id
         if session_id not in deps.session_contexts:
-            deps.session_contexts[session_id] = SessionContext(session_id=session_id)
+            session = await deps.session_repo.get_by_id(session_id)
+            dry_run = not session.config.deception_enabled if session else False
+            deps.session_contexts[session_id] = SessionContext(session_id=session_id, dry_run=dry_run)
             
         decisions = deps.policy.evaluate(env.payload, deps.session_contexts[session_id])
         for decision in decisions:
@@ -170,6 +185,10 @@ async def init_dependencies() -> None:
             
         decision = env.payload
         if decision.verdict == Verdict.EXECUTE:
+            session = await deps.session_repo.get_by_id(env.session_id)
+            if session and not session.config.deception_enabled:
+                return  # Skip mutation if deception is disabled (e.g. CONTROL arm)
+            
             try:
                 mutation = await deps.deception.execute_async(decision)
                 m_env = Envelope[MutationResult](

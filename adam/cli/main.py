@@ -19,9 +19,11 @@ from __future__ import annotations
 import typer
 
 from adam.cli.run import run as run_command
+from adam.cli.replay import replay_main as replay_command
 
 app = typer.Typer(help="ADAM -- Adaptive Deception Sandbox for Advanced Malware Analysis.")
 app.command(name="run")(run_command)
+app.command(name="replay")(replay_command)
 
 
 @app.callback()

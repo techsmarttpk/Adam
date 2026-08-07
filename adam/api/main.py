@@ -22,6 +22,7 @@ from adam.contracts.semantic_event import SemanticEvent, Actor, AttckRef
 from adam.contracts.policy_decision import PolicyDecision
 from adam.contracts.mutation import MutationResult
 from adam.contracts.envelope import Envelope
+from adam.contracts.raw_event import RawEvent
 from adam.pipeline.live import LiveOrchestrator
 from adam.contracts.session import AnalysisSession, SampleRef, SessionConfig, SessionMetrics
 from adam.contracts.enums import Arm, NetworkMode, SessionStatus, Verdict
@@ -44,6 +45,39 @@ clients: List[asyncio.Queue] = []
 
 orchestrator: LiveOrchestrator = None  # type: ignore
 
+async def store_event(envelope: Envelope):
+    sess_id = envelope.session_id
+    if sess_id not in sessions_store:
+        sessions_store[sess_id] = {"metadata": None, "events": [], "decisions": [], "mutations": []}
+    
+    msg_type = envelope.message_type
+    payload_dict = envelope.payload.model_dump()
+    payload_json = envelope.payload.model_dump_json()
+    
+    if msg_type == "SemanticEvent":
+        sessions_store[sess_id]["events"].append(payload_dict)
+    elif msg_type == "PolicyDecision":
+        sessions_store[sess_id]["decisions"].append(payload_dict)
+    elif msg_type == "MutationResult":
+        sessions_store[sess_id]["mutations"].append(payload_dict)
+        
+    # Update metrics if metadata exists
+    metadata = sessions_store[sess_id].get("metadata")
+    if metadata:
+        if msg_type == "SemanticEvent":
+            metadata.metrics.semantic_events += 1
+        elif msg_type == "PolicyDecision":
+            metadata.metrics.decisions_total += 1
+            if payload_dict.get("verdict") == "EXECUTE":
+                metadata.metrics.decisions_executed += 1
+        elif msg_type == "MutationResult":
+            metadata.metrics.mutations_applied += 1
+        
+    # Broadcast to SSE
+    sse_msg = f"event: {msg_type}\ndata: {payload_json}\n\n"
+    for q in clients:
+        await q.put(sse_msg)
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # We initialize the dependencies from deps.py
@@ -51,40 +85,6 @@ async def lifespan(app: FastAPI):
     
     await init_dependencies()
     
-    # Subscribe to bus to populate store & SSE
-    async def store_event(envelope: Envelope):
-        sess_id = envelope.session_id
-        if sess_id not in sessions_store:
-            sessions_store[sess_id] = {"metadata": None, "events": [], "decisions": [], "mutations": []}
-        
-        msg_type = envelope.message_type
-        payload_dict = envelope.payload.model_dump()
-        payload_json = envelope.payload.model_dump_json()
-        
-        if msg_type == "SemanticEvent":
-            sessions_store[sess_id]["events"].append(payload_dict)
-        elif msg_type == "PolicyDecision":
-            sessions_store[sess_id]["decisions"].append(payload_dict)
-        elif msg_type == "MutationResult":
-            sessions_store[sess_id]["mutations"].append(payload_dict)
-            
-        # Update metrics if metadata exists
-        metadata = sessions_store[sess_id].get("metadata")
-        if metadata:
-            if msg_type == "SemanticEvent":
-                metadata.metrics.semantic_events += 1
-            elif msg_type == "PolicyDecision":
-                metadata.metrics.decisions_total += 1
-                if payload_dict.get("verdict") == "EXECUTE":
-                    metadata.metrics.decisions_executed += 1
-            elif msg_type == "MutationResult":
-                metadata.metrics.mutations_applied += 1
-            
-        # Broadcast to SSE
-        sse_msg = f"event: {msg_type}\ndata: {payload_json}\n\n"
-        for q in clients:
-            await q.put(sse_msg)
-
     deps.bus.subscribe(SemanticEvent, store_event, name="api_events")
     deps.bus.subscribe(PolicyDecision, store_event, name="api_decisions")
     deps.bus.subscribe(MutationResult, store_event, name="api_mutations")
@@ -167,7 +167,7 @@ async def run_deterministic_simulation(session_id: str, seed: int):
     attack_events.extend(generate_attack_chain("WKSTN-666", "j.smith", start_time))
     benign_events = generate_benign_events(200, start_time)
     all_events = benign_events + attack_events
-    random.shuffle(all_events)
+    all_events.sort(key=lambda x: datetime.fromisoformat(x["timestamp"].replace("Z", "+00:00")))
     
     metadata.metrics.raw_events = len(all_events)
     
@@ -178,15 +178,28 @@ async def run_deterministic_simulation(session_id: str, seed: int):
         except:
             ts = datetime.now(timezone.utc)
             
+        from adam.contracts.raw_event import ProcessInfo
+        
+        proc = ProcessInfo(
+            pid=ev.get("pid", 1000),
+            ppid=ev.get("ppid", 1000),
+            image=ev.get("image_path", f"C:\\Windows\\System32\\{ev.get('process_name', 'unknown.exe')}"),
+            command_line=ev.get("command_line", ""),
+            integrity_level="High",
+            user=ev.get("user", "System"),
+            guid=f"{{guid-{uuid.uuid4().hex[:8]}}}"
+        )
+        
         raw_event = RawEvent(
             event_id=f"raw_{uuid.uuid4().hex[:8]}",
             session_id=session_id,
             source="SYSMON",
-            source_event_id=ev.get("event_type", 1),
+            source_event_id=1,
             category="PROCESS",
             occurred_at=ts,
             observed_at=datetime.now(timezone.utc),
-            payload=ev
+            process=proc,
+            attributes=ev
         )
         
         env = Envelope[RawEvent](
@@ -207,8 +220,7 @@ async def run_deterministic_simulation(session_id: str, seed: int):
     metadata.ended_at = datetime.now(timezone.utc)
     await deps.session_repo.update(metadata)
     
-    # Broadcast session completion event
-    await deps.bus.publish(Envelope[SemanticEvent](
+    await deps.bus.publish(Envelope[dict](
         envelope_version="1.0",
         message_id=str(uuid.uuid4()),
         message_type="SessionCompleted",
@@ -216,12 +228,17 @@ async def run_deterministic_simulation(session_id: str, seed: int):
         correlation_id=session_id,
         emitted_at=datetime.now(timezone.utc),
         emitter="Orchestrator",
-        payload=None # type: ignore
+        payload={}
     ))
 
 
 @app.post("/api/v1/sessions/simulate")
-async def simulate_session(background_tasks: BackgroundTasks, file: UploadFile = File(...)):
+async def simulate_session(
+    background_tasks: BackgroundTasks, 
+    file: UploadFile = File(...),
+    deception_enabled: bool = True,
+    experiment_id: str = None
+):
     content = await file.read()
     sha256 = hashlib.sha256(content).hexdigest()
     md5 = hashlib.md5(content).hexdigest()
@@ -238,7 +255,7 @@ async def simulate_session(background_tasks: BackgroundTasks, file: UploadFile =
         file_type="binary"
     )
     config = SessionConfig(
-        deception_enabled=True,
+        deception_enabled=deception_enabled,
         policy_ruleset="default",
         vm_profile="windows-10",
         timeout_seconds=300,
@@ -246,8 +263,8 @@ async def simulate_session(background_tasks: BackgroundTasks, file: UploadFile =
     )
     metadata = AnalysisSession(
         session_id=session_id,
-        experiment_id="exp_demo_01",
-        arm=Arm.TREATMENT,
+        experiment_id=experiment_id or "exp_demo_01",
+        arm=Arm.TREATMENT if deception_enabled else Arm.CONTROL,
         sample=sample,
         config=config,
         status=SessionStatus.RUNNING,
@@ -271,6 +288,39 @@ async def simulate_session(background_tasks: BackgroundTasks, file: UploadFile =
 
     background_tasks.add_task(create_and_run)
     return {"session_id": session_id, "status": "RUNNING"}
+
+@app.post("/api/v1/experiments/run")
+async def run_experiment(background_tasks: BackgroundTasks, file: UploadFile = File(...)):
+    # Read file once
+    content = await file.read()
+    import uuid
+    experiment_id = f"exp_{uuid.uuid4().hex[:8]}"
+    
+    # We will simulate the CONTROL session
+    class MockFile:
+        def __init__(self, filename, content):
+            self.filename = filename
+            self.content = content
+        async def read(self):
+            return self.content
+            
+    mock_file = MockFile(file.filename, content)
+    
+    # Create CONTROL session
+    ctrl_res = await simulate_session(
+        background_tasks, mock_file, deception_enabled=False, experiment_id=experiment_id
+    )
+    
+    # Create TREATMENT session
+    trt_res = await simulate_session(
+        background_tasks, mock_file, deception_enabled=True, experiment_id=experiment_id
+    )
+    
+    return {
+        "experiment_id": experiment_id,
+        "control_session": ctrl_res["session_id"],
+        "treatment_session": trt_res["session_id"]
+    }
 
 @app.get("/api/v1/stream")
 async def sse_stream(request: Request):
