@@ -92,7 +92,7 @@ class DBWriter:
         self.bus.subscribe(MutationResult, self._handler, name="db_writer_mutation")
         
         try:
-            from adam.orchestrator.session import SessionLifecycle
+            from adam.contracts.session import SessionLifecycle
             self.bus.subscribe(SessionLifecycle, self._handler, name="db_writer_session")
         except ImportError:
             pass

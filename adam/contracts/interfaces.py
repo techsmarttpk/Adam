@@ -45,6 +45,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from adam.contracts.raw_event import RawEvent
 from adam.contracts.session import SampleRef
+from adam.contracts.mutation import MutationResult
 
 
 # ---------------------------------------------------------------------------
@@ -65,32 +66,6 @@ class MutationRequest(BaseModel):
     primitive: str = Field(min_length=1)
     parameters: dict[str, Any] = Field(default_factory=dict)
 
-
-class MutationResult(BaseModel):
-    """
-    Return type of `ISandboxController.apply_mutation()`. Matches the wire
-    shape in ARCHITECTURE.md section 7.5 (`DeceptionAction`/`MutationResult`)
-    field-for-field, since section 7.5's example is fully specified even
-    though ownership of that section belongs to Dev C -- see module
-    docstring for why this copy is provisional.
-    """
-
-    model_config = ConfigDict(frozen=True, extra="forbid")
-
-    mutation_id: str = Field(min_length=1)
-    session_id: str = Field(min_length=1)
-    correlation_id: str = Field(min_length=1)
-    decision_id: str = Field(min_length=1)
-    primitive: str = Field(min_length=1)
-    status: str = Field(min_length=1)  # APPLIED | PARTIAL | FAILED | REVERTED | SKIPPED
-    applied_at: datetime
-    latency_ms: float = Field(ge=0)
-    changes: list[dict[str, Any]] = Field(default_factory=list)
-    plausibility_score: float | None = Field(default=None, ge=0, le=1)
-    plausibility_notes: str | None = None
-    revertible: bool = False
-    causal_window_ms: int = Field(ge=0)
-    error: str | None = None
 
 
 class ArtifactRef(BaseModel):

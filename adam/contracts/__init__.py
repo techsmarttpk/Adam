@@ -44,7 +44,7 @@ from adam.contracts.interfaces import (
     SessionContextProtocol,
 )
 from adam.contracts.raw_event import ProcessInfo, RawEvent
-from adam.contracts.session import AnalysisSession, SampleRef, SessionConfig, SessionMetrics
+from adam.contracts.session import AnalysisSession, SampleRef, SessionConfig, SessionMetrics, SessionLifecycle
 
 __all__ = [
     # Enums
@@ -64,6 +64,7 @@ __all__ = [
     "SampleRef",
     "SessionConfig",
     "SessionMetrics",
+    "SessionLifecycle",
     # Interfaces — Sandbox / Collectors
     "ArtifactRef",
     "ICollector",

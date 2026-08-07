@@ -141,27 +141,6 @@ def build_collectors_from_telemetry(session_id: str, artifacts: TelemetryArtifac
     return collectors
 
 
-class SessionLifecycle(BaseModel):
-    """
-    Published onto the bus at each major session transition (section 8.4:
-    "Orchestrator | SessionLifecycle | all"). Provisional, not yet part of
-    the frozen adam.contracts boundary: ARCHITECTURE.md section 7 does not
-    give this message a JSON shape the way it does RawEvent/AnalysisSession
-    (it is only named in the section 8.4 subscription table), so this is
-    defined here rather than in adam/contracts/, the same reasoning
-    adam/contracts/interfaces.py's module docstring gives for
-    MutationRequest/ArtifactRef being provisional, in-file additions rather
-    than claims of a frozen section 7 shape.
-    """
-
-    model_config = ConfigDict(frozen=True, extra="forbid")
-
-    session_id: str
-    status: SessionStatus
-    detail: str
-    occurred_at: datetime
-
-
 def new_session_id() -> str:
     """
     Temporary session-ID generator, same disclosed-placeholder status as

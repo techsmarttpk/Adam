@@ -22,6 +22,18 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from adam.contracts.enums import Arm, NetworkMode, SessionStatus
 
 
+class SessionLifecycle(BaseModel):
+    """
+    Published onto the bus at each major session transition (section 8.4).
+    Moved from adam/orchestrator/session.py to here for better dependency management.
+    """
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    session_id: str
+    status: SessionStatus
+    detail: str
+    occurred_at: datetime
+
 class SampleRef(BaseModel):
     """
     AnalysisSession.sample -- ARCHITECTURE.md section 7.6 example. Also the
