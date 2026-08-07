@@ -71,3 +71,9 @@ tshark_path   = "C:\\Program Files\\Wireshark\\tshark.exe"
 sysmon_log    = "Microsoft-Windows-Sysmon/Operational"
 tshark_interface = "1"
 capture_dir   = "C:\\ADAM\\telemetry"
+
+[db]
+path = "adam_local.db"
+batch_size = 100
+batch_timeout_s = 1.0
+queue_size = 10000

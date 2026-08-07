@@ -182,6 +182,16 @@ class HttpGuestSettings(BaseModel):
         return f"http://{self.host}:{self.port}"
 
 
+class DatabaseSettings(BaseModel):
+    """
+    Phase 1 / 2 addition — Configuration for the SQLite persistence layer.
+    """
+    path: str = "adam_local.db"
+    batch_size: int = Field(default=100, gt=0)
+    batch_timeout_s: float = Field(default=1.0, gt=0)
+    queue_size: int = Field(default=10000, gt=0)
+
+
 def _deep_merge_section(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
     """
     One-level merge suitable for this TOML shape (top-level [section]
@@ -269,6 +279,7 @@ class Settings(BaseSettings):
     # this setting or on which concrete class was chosen.
     guest_backend: Literal["vbox", "http"] = "vbox"
     http_guest: HttpGuestSettings = Field(default_factory=HttpGuestSettings)
+    db: DatabaseSettings = Field(default_factory=DatabaseSettings)
 
     @classmethod
     def settings_customise_sources(
