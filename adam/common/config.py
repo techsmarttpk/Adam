@@ -192,9 +192,11 @@ class DatabaseSettings(BaseModel):
     queue_size: int = Field(default=10000, gt=0)
 
 
+class ReportingSettings(BaseModel):
+    plausibility_warn_below: float = Field(default=0.5, ge=0.0, le=1.0)
+
 class DeceptionSettings(BaseModel):
     default_causal_window_ms: int = Field(default=30000, gt=0)
-    plausibility_warn_below: float = Field(default=0.5, ge=0.0, le=1.0)
     enable_clock_manipulation: bool = False
 
 
@@ -287,6 +289,7 @@ class Settings(BaseSettings):
     guest_backend: Literal["vbox", "http"] = "vbox"
     http_guest: HttpGuestSettings = Field(default_factory=HttpGuestSettings)
     db: DatabaseSettings = Field(default_factory=DatabaseSettings)
+    reporting: ReportingSettings = Field(default_factory=ReportingSettings)
     deception: DeceptionSettings = Field(default_factory=DeceptionSettings)
 
     @classmethod

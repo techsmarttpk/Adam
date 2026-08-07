@@ -77,3 +77,10 @@ path = "adam_local.db"
 batch_size = 100
 batch_timeout_s = 1.0
 queue_size = 10000
+
+[reporting]
+plausibility_warn_below = 0.50
+
+[deception]
+default_causal_window_ms = 30000
+enable_clock_manipulation = false

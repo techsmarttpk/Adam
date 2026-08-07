@@ -72,7 +72,7 @@ async def init_dependencies() -> None:
         event_repo=event_repo,
         decision_repo=decision_repo,
         mutation_repo=mutation_repo,
-        plausibility_warn_below=settings.deception.plausibility_warn_below
+        plausibility_warn_below=settings.reporting.plausibility_warn_below
     )
     
     # 2. Handlers for Bus wiring
