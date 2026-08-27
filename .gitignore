@@ -31,9 +31,24 @@ logs/*
 !logs/manual_tests/
 logs/manual_tests/*
 !logs/manual_tests/.gitkeep
+reports/*
+!reports/.gitkeep
 *.sqlite
 *.sqlite-wal
 *.sqlite-shm
+*.db
+*.db-wal
+*.db-shm
+*.log
+screen*.png
+*.raw.jsonl
+test_report.html
+replay_out.txt
+demo/logs/*
+!demo/logs/.gitkeep
+demo/REPORT.md
+demo/REPORT_STRESS.md
+docs/audit_reports/
 
 # Malware samples - never commit these
 samples/*

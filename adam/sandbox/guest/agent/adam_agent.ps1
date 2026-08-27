@@ -130,22 +130,25 @@ function Test-RequiredCommandsAvailable {
 
 Test-RequiredCommandsAvailable
 
-$Config = Get-AgentConfig -ConfigPath $ConfigPath
-$AgentVersion = '1.0.0'
-$ApiVersion = '1'
-$StartTime = Get-Date
+$Script:Config = Get-AgentConfig -ConfigPath $ConfigPath
+$Script:AgentVersion = '1.0.0'
+$Script:ApiVersion = '1'
+$Script:StartTime = Get-Date
 
 function Read-JsonBody {
     param([System.Net.HttpListenerRequest]$Request)
-    if (-not $Request.HasEntityBody) { return $null }
-    $reader = New-Object System.IO.StreamReader($Request.InputStream, $Request.ContentEncoding)
-    try {
-        $raw = $reader.ReadToEnd()
-        if ([string]::IsNullOrWhiteSpace($raw)) { return $null }
-        return $raw | ConvertFrom-Json
-    } finally {
-        $reader.Dispose()
+    if (-not $Request.HasEntityBody -or $Request.ContentLength64 -le 0) { return $null }
+    $encoding = if ($Request.ContentEncoding) { $Request.ContentEncoding } else { [System.Text.Encoding]::UTF8 }
+    $buffer = New-Object byte[] $Request.ContentLength64
+    $totalRead = 0
+    while ($totalRead -lt $Request.ContentLength64) {
+        $read = $Request.InputStream.Read($buffer, $totalRead, $Request.ContentLength64 - $totalRead)
+        if ($read -le 0) { break }
+        $totalRead += $read
     }
+    $raw = $encoding.GetString($buffer, 0, $totalRead)
+    if ([string]::IsNullOrWhiteSpace($raw)) { return $null }
+    return ($raw | ConvertFrom-Json)
 }
 
 function Get-QueryParam {
@@ -203,11 +206,11 @@ function Invoke-Route {
 
     switch ("$Method $Path") {
         'GET /health' {
-            $uptime = ((Get-Date) - $StartTime).TotalSeconds
+            $uptime = ((Get-Date) - $Script:StartTime).TotalSeconds
             return @{ Kind = 'json'; Envelope = (New-SuccessEnvelope -Data @{ status = 'ok'; uptime_s = $uptime }) }
         }
         'GET /version' {
-            return @{ Kind = 'json'; Envelope = (New-SuccessEnvelope -Data @{ agent_version = $AgentVersion; api_version = $ApiVersion }) }
+            return @{ Kind = 'json'; Envelope = (New-SuccessEnvelope -Data @{ agent_version = $Script:AgentVersion; api_version = $Script:ApiVersion }) }
         }
 
         # ---------------- Filesystem ----------------
@@ -247,10 +250,14 @@ function Invoke-Route {
         'POST /process/start' {
             $body = Read-JsonBody -Request $Request
             $arguments = @()
-            if ($body.PSObject.Properties.Name -contains 'arguments' -and $body.arguments) { $arguments = @($body.arguments) }
-            $wait = if ($body.PSObject.Properties.Name -contains 'wait') { [bool]$body.wait } else { $false }
-            $timeoutS = if ($body.PSObject.Properties.Name -contains 'timeout_s') { $body.timeout_s } else { $null }
-            $workDir = if ($body.PSObject.Properties.Name -contains 'working_directory') { $body.working_directory } else { $null }
+            $pArgs = $body.PSObject.Properties['arguments']
+            if ($pArgs -and $pArgs.Value) { $arguments = @($pArgs.Value) }
+            $pWait = $body.PSObject.Properties['wait']
+            $wait = if ($pWait -and $pWait.Value -ne $null) { [bool]$pWait.Value } else { $false }
+            $pTimeout = $body.PSObject.Properties['timeout_s']
+            $timeoutS = if ($pTimeout -and $pTimeout.Value -ne $null) { $pTimeout.Value } else { $null }
+            $pWorkDir = $body.PSObject.Properties['working_directory']
+            $workDir = if ($pWorkDir -and $pWorkDir.Value) { [string]$pWorkDir.Value } else { $null }
             return @{ Kind = 'json'; Envelope = (Invoke-ProcessStart -Executable $body.executable -Arguments $arguments -WorkingDirectory $workDir -Wait $wait -TimeoutS $timeoutS) }
         }
         'POST /process/terminate' {
@@ -262,8 +269,10 @@ function Invoke-Route {
             # comment below for the real, shipped bug this caused).
             # $requestedPid is just a locally-scoped name that doesn't
             # collide with it.
-            $requestedPid = if ($body.PSObject.Properties.Name -contains 'pid') { $body.pid } else { $null }
-            $name = if ($body.PSObject.Properties.Name -contains 'name') { $body.name } else { $null }
+            $pPid = $body.PSObject.Properties['pid']
+            $requestedPid = if ($pPid -and $pPid.Value -ne $null) { $pPid.Value } else { $null }
+            $pName = $body.PSObject.Properties['name']
+            $name = if ($pName -and $pName.Value) { [string]$pName.Value } else { $null }
             return @{ Kind = 'json'; Envelope = (Invoke-ProcessTerminate -ProcessId $requestedPid -Name $name) }
         }
         'POST /process/wait' {
@@ -273,14 +282,6 @@ function Invoke-Route {
         'GET /process/query' {
             $name = Get-QueryParam -Request $Request -Name 'name'
             $pidRaw = Get-QueryParam -Request $Request -Name 'pid'
-            # NOT $pid -- a real, shipped bug here: $PID is PowerShell's
-            # own read-only automatic variable holding the CURRENT
-            # process's id, and `$pid = ...` (no scope qualifier)
-            # resolves to that same variable rather than creating a new
-            # local one, so every GET /process/query request failed
-            # with "Cannot overwrite variable PID because it is
-            # read-only or constant." $requestedPid avoids the name
-            # collision entirely -- functionally identical otherwise.
             $requestedPid = if ($pidRaw) { [int]$pidRaw } else { $null }
             return @{ Kind = 'json'; Envelope = (Invoke-ProcessQuery -Name $name -ProcessId $requestedPid) }
         }
@@ -288,15 +289,15 @@ function Invoke-Route {
         # ---------------- Procmon ----------------
         'POST /procmon/start' {
             $body = Read-JsonBody -Request $Request
-            return @{ Kind = 'json'; Envelope = (Invoke-ProcmonStart -ProcmonPath $Config.ProcmonPath -SessionId $body.session_id -BackingFile $body.backing_file) }
+            return @{ Kind = 'json'; Envelope = (Invoke-ProcmonStart -ProcmonPath $Script:Config['ProcmonPath'] -SessionId $body.session_id -BackingFile $body.backing_file) }
         }
         'POST /procmon/stop' {
             $body = Read-JsonBody -Request $Request
-            return @{ Kind = 'json'; Envelope = (Invoke-ProcmonStop -ProcmonPath $Config.ProcmonPath -SessionId $body.session_id) }
+            return @{ Kind = 'json'; Envelope = (Invoke-ProcmonStop -ProcmonPath $Script:Config['ProcmonPath'] -SessionId $body.session_id) }
         }
         'POST /procmon/export' {
             $body = Read-JsonBody -Request $Request
-            return @{ Kind = 'json'; Envelope = (Invoke-ProcmonExport -ProcmonPath $Config.ProcmonPath -PmlPath $body.pml_path -CsvPath $body.csv_path) }
+            return @{ Kind = 'json'; Envelope = (Invoke-ProcmonExport -ProcmonPath $Script:Config['ProcmonPath'] -PmlPath $body.pml_path -CsvPath $body.csv_path) }
         }
         'GET /procmon/verify-backing-file' {
             $path = Get-QueryParam -Request $Request -Name 'path'
@@ -305,11 +306,11 @@ function Invoke-Route {
 
         # ---------------- Network / tshark ----------------
         'GET /network/interfaces' {
-            return @{ Kind = 'json'; Envelope = (Get-NetworkInterfaces -TsharkPath $Config.TsharkPath) }
+            return @{ Kind = 'json'; Envelope = (Get-NetworkInterfaces -TsharkPath $Script:Config['TsharkPath']) }
         }
         'POST /network/start' {
             $body = Read-JsonBody -Request $Request
-            return @{ Kind = 'json'; Envelope = (Invoke-NetworkStart -TsharkPath $Config.TsharkPath -SessionId $body.session_id -Interface $body.interface -PcapPath $body.pcap_path) }
+            return @{ Kind = 'json'; Envelope = (Invoke-NetworkStart -TsharkPath $Script:Config['TsharkPath'] -SessionId $body.session_id -Interface $body.interface -PcapPath $body.pcap_path) }
         }
         'POST /network/stop' {
             $body = Read-JsonBody -Request $Request
@@ -317,7 +318,7 @@ function Invoke-Route {
         }
         'POST /network/convert' {
             $body = Read-JsonBody -Request $Request
-            return @{ Kind = 'json'; Envelope = (Invoke-NetworkConvert -TsharkPath $Config.TsharkPath -PcapPath $body.pcap_path -EkJsonPath $body.ek_json_path) }
+            return @{ Kind = 'json'; Envelope = (Invoke-NetworkConvert -TsharkPath $Script:Config['TsharkPath'] -PcapPath $body.pcap_path -EkJsonPath $body.ek_json_path) }
         }
 
         # ---------------- Sysmon ----------------
@@ -327,7 +328,7 @@ function Invoke-Route {
         }
         'GET /sysmon/diagnostics' {
             $channel = Get-QueryParam -Request $Request -Name 'channel'
-            if (-not $channel) { $channel = $Config.SysmonLog }
+            if (-not $channel) { $channel = $Script:Config['SysmonLog'] }
             return @{ Kind = 'json'; Envelope = (Get-SysmonDiagnostics -Channel $channel) }
         }
 
@@ -347,17 +348,32 @@ function Invoke-Route {
         # ---------------- Sample ----------------
         'POST /sample/upload' {
             $body = Read-JsonBody -Request $Request
-            return @{ Kind = 'json'; Envelope = (Invoke-SampleUpload -SampleDir $Config.SampleDir -Filename $body.filename -Sha256 $body.sha256 -ContentBase64 $body.content_base64) }
+            return @{ Kind = 'json'; Envelope = (Invoke-SampleUpload -SampleDir $Script:Config['SampleDir'] -Filename $body.filename -Sha256 $body.sha256 -ContentBase64 $body.content_base64) }
         }
         'POST /sample/stage' {
             $body = Read-JsonBody -Request $Request
-            return @{ Kind = 'json'; Envelope = (Invoke-SampleStage -StagedPath $body.staged_path -TargetPath $body.target_path) }
+            $stageParams = @{
+                TargetPath = [string]$body.target_path
+            }
+            $pStaged = $body.PSObject.Properties['staged_path']
+            if ($pStaged -and $pStaged.Value) {
+                $stageParams['StagedPath'] = [string]$pStaged.Value
+            }
+            $pContent = $body.PSObject.Properties['content_base64']
+            if ($pContent -and $pContent.Value) {
+                $stageParams['ContentBase64'] = [string]$pContent.Value
+            }
+            $pSha = $body.PSObject.Properties['sha256']
+            if ($pSha -and $pSha.Value) {
+                $stageParams['Sha256'] = [string]$pSha.Value
+            }
+            return @{ Kind = 'json'; Envelope = (Invoke-SampleStage @stageParams) }
         }
 
         # ---------------- Artifact ----------------
         'GET /artifact/list' {
             $sessionId = Get-QueryParam -Request $Request -Name 'session_id'
-            return @{ Kind = 'json'; Envelope = (Invoke-ArtifactList -CaptureDir $Config.CaptureDir -SessionId $sessionId) }
+            return @{ Kind = 'json'; Envelope = (Invoke-ArtifactList -CaptureDir $Script:Config['CaptureDir'] -SessionId $sessionId) }
         }
         'POST /artifact/package' {
             $body = Read-JsonBody -Request $Request
@@ -375,31 +391,87 @@ function Invoke-Route {
 }
 
 function Start-AdamAgent {
-    $listener = New-Object System.Net.HttpListener
-    $listener.Prefixes.Add($Config.ListenPrefix)
+    # Self-healing: ensure firewall rule, URL ACL, Sysmon channel permissions, and decoy directory permissions are present
     try {
-        $listener.Start()
+        & netsh advfirewall firewall add rule name="ADAM_Agent" dir=in action=allow protocol=TCP localport=8765 | Out-Null
+        & netsh http add urlacl url="http://+:8765/" user="Everyone" | Out-Null
+        & wevtutil sl "Microsoft-Windows-Sysmon/Operational" "/ca:O:BAG:SYD:(A;;0xf0007;;;SY)(A;;0x7;;;BA)(A;;0x1;;;BO)(A;;0x1;;;SO)(A;;0x1;;;S-1-5-32-573)(A;;0x1;;;AU)(A;;0x1;;;WD)" | Out-Null
+        if (-not (Test-Path -LiteralPath "C:\Users\Admin\Documents")) {
+            New-Item -ItemType Directory -Path "C:\Users\Admin\Documents" -Force | Out-Null
+        }
+        & icacls "C:\Users\Admin\Documents" /grant "Everyone:(OI)(CI)F" /C /Q | Out-Null
+        if (-not (Test-Path -LiteralPath "C:\Users\Adam\Documents")) {
+            New-Item -ItemType Directory -Path "C:\Users\Adam\Documents" -Force | Out-Null
+        }
+        & icacls "C:\Users\Adam\Documents" /grant "Everyone:(OI)(CI)F" /C /Q | Out-Null
+        if (-not (Test-Path -LiteralPath "C:\ADAM\telemetry")) {
+            New-Item -ItemType Directory -Path "C:\ADAM\telemetry" -Force | Out-Null
+        }
+        & icacls "C:\ADAM" /grant "Everyone:(OI)(CI)F" /C /Q | Out-Null
     } catch {
-        Write-AgentLog -Level ERROR -Message "failed to start HttpListener on $($Config.ListenPrefix): $($_.Exception.Message). On Windows, binding a non-localhost prefix without admin rights requires a prior 'netsh http add urlacl' grant -- see install.ps1."
-        throw
+        # Best effort
     }
-    Write-AgentLog -Message "adam_agent listening on $($Config.ListenPrefix) (agent_version=$AgentVersion api_version=$ApiVersion)"
+
+    $prefix = $Script:Config['ListenPrefix']
+    $listener = $null
+    $started = $false
+    for ($attempt = 1; $attempt -le 30; $attempt++) {
+        try {
+            $listener = New-Object System.Net.HttpListener
+            $listener.Prefixes.Add($prefix)
+            $listener.Start()
+            $started = $true
+            break
+        } catch {
+            Write-AgentLog -Level WARN -Message "attempt $attempt failed to start HttpListener on $prefix : $($_.Exception.Message)"
+            if ($listener) {
+                try { $listener.Close() } catch { }
+                $listener = $null
+            }
+            Start-Sleep -Seconds 2
+        }
+    }
+    if (-not $started -or $null -eq $listener) {
+        Write-AgentLog -Level ERROR -Message "failed to start HttpListener on $prefix after 30 attempts"
+        throw "HttpListener could not start on $prefix"
+    }
+    Write-AgentLog -Message "adam_agent listening on $prefix (agent_version=$Script:AgentVersion api_version=$Script:ApiVersion)"
 
     while ($listener.IsListening) {
         try {
             $context = $listener.GetContext()
         } catch [System.Net.HttpListenerException] {
-            # Thrown when the listener is stopped while GetContext() is
-            # blocking -- normal shutdown path, not an error.
+            # Thrown when the listener is stopped while GetContext() is blocking
             break
+        } catch {
+            Write-AgentLog -Level WARN -Message "GetContext threw: $($_.Exception.Message)"
+            continue
         }
 
-        $request = $context.Request
-        $response = $context.Response
-        $path = $request.Url.AbsolutePath.TrimEnd('/')
-        if ([string]::IsNullOrEmpty($path)) { $path = '/' }
-
         try {
+            $request = $context.Request
+            $response = $context.Response
+            $path = $request.Url.AbsolutePath.TrimEnd('/')
+            if ([string]::IsNullOrEmpty($path)) { $path = '/' }
+
+            # Enforce agent authentication token if configured
+            $expectedToken = $Script:Config['AuthToken']
+            if (-not [string]::IsNullOrEmpty($expectedToken)) {
+                $headerToken = $request.Headers['X-Adam-Token']
+                if ([string]::IsNullOrEmpty($headerToken)) {
+                    $authHeader = $request.Headers['Authorization']
+                    if (-not [string]::IsNullOrEmpty($authHeader) -and $authHeader.StartsWith('Bearer ')) {
+                        $headerToken = $authHeader.Substring(7).Trim()
+                    }
+                }
+                if ($headerToken -ne $expectedToken) {
+                    Write-AgentLog -Level WARN -Message "rejected request to $($path): missing or invalid authentication token"
+                    $authEnvelope = New-ErrorEnvelope -ErrorCode 'UNAUTHORIZED' -ErrorMessage 'Authentication failed: missing or invalid agent token'
+                    Write-JsonResponse -Response $response -Envelope $authEnvelope -StatusCode 401
+                    continue
+                }
+            }
+
             $outcome = Invoke-Route -Method $request.HttpMethod -Path $path -Request $request
             if ($outcome.Kind -eq 'file') {
                 Write-FileResponse -Response $response -ReadResult $outcome.Result
@@ -407,10 +479,12 @@ function Start-AdamAgent {
                 Write-EnvelopeResponse -Response $response -Envelope $outcome.Envelope
             }
         } catch {
-            Write-AgentLog -Level ERROR -Message "unhandled exception routing $($request.HttpMethod) $path : $($_.Exception.Message)"
+            Write-AgentLog -Level ERROR -Message "unhandled exception routing request: $($_.Exception.Message)"
             try {
-                $errorEnvelope = New-ErrorEnvelope -ErrorCode $Script:ErrorCodes.InternalError -ErrorMessage $_.Exception.Message
-                Write-JsonResponse -Response $response -Envelope $errorEnvelope -StatusCode 500
+                if ($context -and $context.Response) {
+                    $errorEnvelope = New-ErrorEnvelope -ErrorCode $Script:ErrorCodes.InternalError -ErrorMessage $_.Exception.Message
+                    Write-JsonResponse -Response $context.Response -Envelope $errorEnvelope -StatusCode 500
+                }
             } catch {
                 # Response already closed/broken -- nothing more we can do for this request.
             }

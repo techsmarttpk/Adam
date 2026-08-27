@@ -66,17 +66,16 @@ function Get-SysmonDiagnostics {
         $available = $true
         $eventCount = $null
         try {
-            $events = Get-WinEvent -LogName $Channel -ErrorAction Stop
-            $eventCount = ($events | Measure-Object).Count
+            $log = Get-WinEvent -ListLog $Channel -ErrorAction Stop
+            $eventCount = $log.RecordCount
         } catch [System.Diagnostics.Eventing.Reader.EventLogNotFoundException] {
             $available = $false
         } catch {
-            # Channel exists but is empty (Get-WinEvent throws
-            # "No events were found" in that case too) -- distinguish
-            # "not found" from "empty" so channel_available stays
-            # accurate.
-            if ($_.Exception.Message -match 'No events were found') {
-                $eventCount = 0
+            # Try wevtutil gl probe as fallback
+            $wevtutil = Join-Path $env:WINDIR 'System32\wevtutil.exe'
+            $gl = Invoke-NativeProcess -FilePath $wevtutil -ArgumentList @('gl', $Channel) -TimeoutMs 5000
+            if (-not $gl.TimedOut -and $gl.ExitCode -eq 0 -and $gl.StdOut -match 'enabled:\s*true') {
+                $available = $true
             } else {
                 $available = $false
             }

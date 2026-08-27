@@ -162,13 +162,17 @@ class EventBus:
 
         return subscription
 
-    async def publish(self, message: Envelope[Any]) -> None:
+    async def publish(self, message: Envelope[Any], *, put_timeout_s: float = 0.05) -> None:
         """
         Fans `message` out to every subscriber registered for
-        type(message.payload) or one of its superclasses. Non-blocking per
-        subscriber: a full queue drops this message for that subscriber
-        (counted + logged as QueueOverflow), never blocks the publisher and
-        never affects delivery to any other subscriber. See section 8.3.
+        type(message.payload) or one of its superclasses.
+
+        Backpressure policy:
+        Attempts immediate `put_nowait()`. If the queue is full, applies bounded
+        backpressure by awaiting `queue.put()` up to `put_timeout_s` (default 50ms)
+        to give the consumer task an opportunity to drain. If the queue remains
+        saturated after the timeout, the message is dropped and a detailed
+        `QueueOverflow` WARNING is logged with payload identifiers and queue depth.
         """
         payload_type = type(message.payload)
         for registered_type, subscribers in self._subscribers.items():
@@ -179,15 +183,34 @@ class EventBus:
                     subscriber.queue.put_nowait(message)
                     subscriber.subscription.delivered += 1
                 except asyncio.QueueFull:
-                    subscriber.subscription.dropped += 1
-                    logger.warning(
-                        "QueueOverflow: dropped message_type=%s for subscriber=%r "
-                        "(queue_size=%d, total_dropped=%d)",
-                        payload_type.__name__,
-                        subscriber.subscription.name,
-                        subscriber.subscription.queue_size,
-                        subscriber.subscription.dropped,
-                    )
+                    # Apply bounded backpressure before dropping
+                    enqueued = False
+                    if put_timeout_s > 0:
+                        try:
+                            await asyncio.wait_for(subscriber.queue.put(message), timeout=put_timeout_s)
+                            subscriber.subscription.delivered += 1
+                            enqueued = True
+                        except asyncio.TimeoutError:
+                            enqueued = False
+
+                    if not enqueued:
+                        subscriber.subscription.dropped += 1
+                        msg_id = getattr(message, "message_id", "unknown")
+                        sess_id = getattr(message, "session_id", "unknown")
+                        payload_summary = getattr(message.payload, "decision_id", None) or getattr(message.payload, "event_id", None) or getattr(message.payload, "semantic_id", None) or "n/a"
+                        logger.warning(
+                            "QueueOverflow: dropped message_type=%s message_id=%s session_id=%s payload_ref=%s for subscriber=%r "
+                            "(queue_size=%d, current_qsize=%d, total_dropped=%d, put_timeout=%.3fs)",
+                            payload_type.__name__,
+                            msg_id,
+                            sess_id,
+                            payload_summary,
+                            subscriber.subscription.name,
+                            subscriber.subscription.queue_size,
+                            subscriber.queue.qsize(),
+                            subscriber.subscription.dropped,
+                            put_timeout_s,
+                        )
 
     async def start(self) -> None:
         """

@@ -42,6 +42,7 @@ class EventFusionEngine:
         self.process_tree = ProcessTree()
         self.correlator = EventCorrelator()
         self.registry = DetectorRegistry()
+        self._emitted_signatures: set[tuple] = set()
 
     def process(self, events: Iterable[RawEvent]) -> FusionResult:
         """
@@ -73,7 +74,7 @@ class EventFusionEngine:
         )
 
         # ----------------------------
-        # Detection
+        # Detection (with signature deduplication)
         # ----------------------------
         semantic_events = []
 
@@ -84,6 +85,24 @@ class EventFusionEngine:
                 matched = detector.match(group)
 
                 if matched:
+                    # Construct an immutable signature of matched evidence
+                    ev_sig = tuple(
+                        (
+                            getattr(e, "timestamp", None),
+                            getattr(e, "process_name", None),
+                            getattr(e, "process_id", None),
+                            str(getattr(e, "payload", {}).get("command_line", "")),
+                        )
+                        for e in matched
+                    )
+                    sig = (detector.__class__.__name__, ev_sig)
+                    if sig in self._emitted_signatures:
+                        continue
+
+                    self._emitted_signatures.add(sig)
+                    # Limit memory of emitted signatures
+                    if len(self._emitted_signatures) > 5000:
+                        self._emitted_signatures.clear()
 
                     semantic_events.append(
                         detector.build(matched)
@@ -98,4 +117,4 @@ class EventFusionEngine:
             correlated_groups=len(groups),
             detections=semantic_events,
             runtime_ms=runtime_ms,
-        )
+        )

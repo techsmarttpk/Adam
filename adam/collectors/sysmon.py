@@ -61,7 +61,7 @@ class SysmonCollector(BaseCollector):
         *,
         session_id: str,
         poll_interval: float = 0.1,
-        buffer_size: int = 1000,
+        buffer_size: int = 10000,
     ) -> None:
         super().__init__(buffer_size=buffer_size)
         self._evtx_path = evtx_path
@@ -118,6 +118,7 @@ class SysmonCollector(BaseCollector):
                 continue
 
             highest_seen = self._last_record_id
+            emitted_since_yield = 0
             for xml_text in records:
                 record_id = self._record_id_of(xml_text)
                 if record_id is not None and self._last_record_id is not None and record_id <= self._last_record_id:
@@ -133,6 +134,10 @@ class SysmonCollector(BaseCollector):
 
                 if event is not None:
                     self._emit(event)
+                    emitted_since_yield += 1
+                    if emitted_since_yield >= 10:
+                        await asyncio.sleep(0)  # cooperative yield point to let pump tasks run
+                        emitted_since_yield = 0
 
                 if record_id is not None and (highest_seen is None or record_id > highest_seen):
                     highest_seen = record_id

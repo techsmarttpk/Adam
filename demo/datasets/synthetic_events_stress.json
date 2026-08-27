@@ -1,0 +1,1158 @@
+[
+  {
+    "semantic_id": "sem_stress_001",
+    "session_id": "sess_stress_001",
+    "correlation_id": "corr_stress_001",
+    "intent": "PERSIST_RUN_KEY",
+    "confidence": 0.85,
+    "severity": "MEDIUM",
+    "window_start": "2026-07-29T21:00:00.000000Z",
+    "window_end": "2026-07-29T21:00:00.000000Z",
+    "actor": {
+      "pid": 7890,
+      "image": "C:\\\\Users\\\\Public\\\\stress_runner.exe",
+      "guid": "{s0000000-0000-0000-0000-000000000000}"
+    },
+    "evidence": [
+      "raw_ev_1"
+    ],
+    "attck": {
+      "tactic": "TA0007",
+      "technique": "T1018"
+    },
+    "detector": "StressDetector@1.0",
+    "features": {
+      "distinct_registry_keys": 6
+    },
+    "caused_by_mutation": null
+  },
+  {
+    "semantic_id": "sem_stress_002",
+    "session_id": "sess_stress_001",
+    "correlation_id": "corr_stress_002",
+    "intent": "PERSIST_RUN_KEY",
+    "confidence": 0.85,
+    "severity": "MEDIUM",
+    "window_start": "2026-07-29T21:00:05.000000Z",
+    "window_end": "2026-07-29T21:00:05.000000Z",
+    "actor": {
+      "pid": 7890,
+      "image": "C:\\\\Users\\\\Public\\\\stress_runner.exe",
+      "guid": "{s0000000-0000-0000-0000-000000000000}"
+    },
+    "evidence": [
+      "raw_ev_2"
+    ],
+    "attck": {
+      "tactic": "TA0007",
+      "technique": "T1018"
+    },
+    "detector": "StressDetector@1.0",
+    "features": {
+      "distinct_registry_keys": 6
+    },
+    "caused_by_mutation": null
+  },
+  {
+    "semantic_id": "sem_stress_003",
+    "session_id": "sess_stress_001",
+    "correlation_id": "corr_stress_003",
+    "intent": "PERSIST_RUN_KEY",
+    "confidence": 0.85,
+    "severity": "MEDIUM",
+    "window_start": "2026-07-29T21:00:10.000000Z",
+    "window_end": "2026-07-29T21:00:10.000000Z",
+    "actor": {
+      "pid": 7890,
+      "image": "C:\\\\Users\\\\Public\\\\stress_runner.exe",
+      "guid": "{s0000000-0000-0000-0000-000000000000}"
+    },
+    "evidence": [
+      "raw_ev_3"
+    ],
+    "attck": {
+      "tactic": "TA0007",
+      "technique": "T1018"
+    },
+    "detector": "StressDetector@1.0",
+    "features": {
+      "distinct_registry_keys": 6
+    },
+    "caused_by_mutation": null
+  },
+  {
+    "semantic_id": "sem_stress_004",
+    "session_id": "sess_stress_001",
+    "correlation_id": "corr_stress_004",
+    "intent": "PERSIST_RUN_KEY",
+    "confidence": 0.85,
+    "severity": "MEDIUM",
+    "window_start": "2026-07-29T21:01:05.000000Z",
+    "window_end": "2026-07-29T21:01:05.000000Z",
+    "actor": {
+      "pid": 7890,
+      "image": "C:\\\\Users\\\\Public\\\\stress_runner.exe",
+      "guid": "{s0000000-0000-0000-0000-000000000000}"
+    },
+    "evidence": [
+      "raw_ev_4"
+    ],
+    "attck": {
+      "tactic": "TA0007",
+      "technique": "T1018"
+    },
+    "detector": "StressDetector@1.0",
+    "features": {
+      "distinct_registry_keys": 6
+    },
+    "caused_by_mutation": null
+  },
+  {
+    "semantic_id": "sem_stress_005",
+    "session_id": "sess_stress_001",
+    "correlation_id": "corr_stress_005",
+    "intent": "PERSIST_RUN_KEY",
+    "confidence": 0.85,
+    "severity": "MEDIUM",
+    "window_start": "2026-07-29T21:01:10.000000Z",
+    "window_end": "2026-07-29T21:01:10.000000Z",
+    "actor": {
+      "pid": 7890,
+      "image": "C:\\\\Users\\\\Public\\\\stress_runner.exe",
+      "guid": "{s0000000-0000-0000-0000-000000000000}"
+    },
+    "evidence": [
+      "raw_ev_5"
+    ],
+    "attck": {
+      "tactic": "TA0007",
+      "technique": "T1018"
+    },
+    "detector": "StressDetector@1.0",
+    "features": {
+      "distinct_registry_keys": 6
+    },
+    "caused_by_mutation": null
+  },
+  {
+    "semantic_id": "sem_stress_006",
+    "session_id": "sess_stress_001",
+    "correlation_id": "corr_stress_006",
+    "intent": "RECON_DOMAIN_CONTROLLER",
+    "confidence": 0.85,
+    "severity": "MEDIUM",
+    "window_start": "2026-07-29T21:01:15.000000Z",
+    "window_end": "2026-07-29T21:01:15.000000Z",
+    "actor": {
+      "pid": 7890,
+      "image": "C:\\\\Users\\\\Public\\\\stress_runner.exe",
+      "guid": "{s0000000-0000-0000-0000-000000000000}"
+    },
+    "evidence": [
+      "raw_ev_6"
+    ],
+    "attck": {
+      "tactic": "TA0007",
+      "technique": "T1018"
+    },
+    "detector": "StressDetector@1.0",
+    "features": {
+      "ldap_attempts": 3,
+      "all_failed": true
+    },
+    "caused_by_mutation": null
+  },
+  {
+    "semantic_id": "sem_stress_007",
+    "session_id": "sess_stress_001",
+    "correlation_id": "corr_stress_007",
+    "intent": "RECON_DOMAIN_CONTROLLER",
+    "confidence": 0.85,
+    "severity": "MEDIUM",
+    "window_start": "2026-07-29T21:01:20.000000Z",
+    "window_end": "2026-07-29T21:01:20.000000Z",
+    "actor": {
+      "pid": 7890,
+      "image": "C:\\\\Users\\\\Public\\\\stress_runner.exe",
+      "guid": "{s0000000-0000-0000-0000-000000000000}"
+    },
+    "evidence": [
+      "raw_ev_7"
+    ],
+    "attck": {
+      "tactic": "TA0007",
+      "technique": "T1018"
+    },
+    "detector": "StressDetector@1.0",
+    "features": {
+      "ldap_attempts": 3,
+      "all_failed": true
+    },
+    "caused_by_mutation": null
+  },
+  {
+    "semantic_id": "sem_stress_008",
+    "session_id": "sess_stress_001",
+    "correlation_id": "corr_stress_008",
+    "intent": "CRED_BROWSER_STORE",
+    "confidence": 0.85,
+    "severity": "MEDIUM",
+    "window_start": "2026-07-29T21:01:25.000000Z",
+    "window_end": "2026-07-29T21:01:25.000000Z",
+    "actor": {
+      "pid": 7890,
+      "image": "C:\\\\Users\\\\Public\\\\stress_runner.exe",
+      "guid": "{s0000000-0000-0000-0000-000000000000}"
+    },
+    "evidence": [
+      "raw_ev_8"
+    ],
+    "attck": {
+      "tactic": "TA0007",
+      "technique": "T1018"
+    },
+    "detector": "StressDetector@1.0",
+    "features": {},
+    "caused_by_mutation": null
+  },
+  {
+    "semantic_id": "sem_stress_009",
+    "session_id": "sess_stress_001",
+    "correlation_id": "corr_stress_009",
+    "intent": "CRED_BROWSER_STORE",
+    "confidence": 0.85,
+    "severity": "MEDIUM",
+    "window_start": "2026-07-29T21:01:30.000000Z",
+    "window_end": "2026-07-29T21:01:30.000000Z",
+    "actor": {
+      "pid": 7890,
+      "image": "C:\\\\Users\\\\Public\\\\stress_runner.exe",
+      "guid": "{s0000000-0000-0000-0000-000000000000}"
+    },
+    "evidence": [
+      "raw_ev_9"
+    ],
+    "attck": {
+      "tactic": "TA0007",
+      "technique": "T1018"
+    },
+    "detector": "StressDetector@1.0",
+    "features": {},
+    "caused_by_mutation": null
+  },
+  {
+    "semantic_id": "sem_stress_010",
+    "session_id": "sess_stress_001",
+    "correlation_id": "corr_stress_010",
+    "intent": "RECON_VIRTUALISATION",
+    "confidence": 0.8,
+    "severity": "MEDIUM",
+    "window_start": "2026-07-29T21:01:35.000000Z",
+    "window_end": "2026-07-29T21:01:35.000000Z",
+    "actor": {
+      "pid": 7890,
+      "image": "C:\\\\Users\\\\Public\\\\stress_runner.exe",
+      "guid": "{s0000000-0000-0000-0000-000000000000}"
+    },
+    "evidence": [
+      "raw_ev_10"
+    ],
+    "attck": {
+      "tactic": "TA0007",
+      "technique": "T1018"
+    },
+    "detector": "StressDetector@1.0",
+    "features": {},
+    "caused_by_mutation": null
+  },
+  {
+    "semantic_id": "sem_stress_011",
+    "session_id": "sess_stress_001",
+    "correlation_id": "corr_stress_011",
+    "intent": "RECON_NETWORK_SHARES",
+    "confidence": 0.78,
+    "severity": "MEDIUM",
+    "window_start": "2026-07-29T21:01:40.000000Z",
+    "window_end": "2026-07-29T21:01:40.000000Z",
+    "actor": {
+      "pid": 7890,
+      "image": "C:\\\\Users\\\\Public\\\\stress_runner.exe",
+      "guid": "{s0000000-0000-0000-0000-000000000000}"
+    },
+    "evidence": [
+      "raw_ev_11"
+    ],
+    "attck": {
+      "tactic": "TA0007",
+      "technique": "T1018"
+    },
+    "detector": "StressDetector@1.0",
+    "features": {},
+    "caused_by_mutation": null
+  },
+  {
+    "semantic_id": "sem_stress_012",
+    "session_id": "sess_stress_001",
+    "correlation_id": "corr_stress_012",
+    "intent": "RECON_INSTALLED_AV",
+    "confidence": 0.85,
+    "severity": "MEDIUM",
+    "window_start": "2026-07-29T21:01:45.000000Z",
+    "window_end": "2026-07-29T21:01:45.000000Z",
+    "actor": {
+      "pid": 7890,
+      "image": "C:\\\\Users\\\\Public\\\\stress_runner.exe",
+      "guid": "{s0000000-0000-0000-0000-000000000000}"
+    },
+    "evidence": [
+      "raw_ev_12"
+    ],
+    "attck": {
+      "tactic": "TA0007",
+      "technique": "T1018"
+    },
+    "detector": "StressDetector@1.0",
+    "features": {},
+    "caused_by_mutation": null
+  },
+  {
+    "semantic_id": "sem_stress_013",
+    "session_id": "sess_stress_002",
+    "correlation_id": "corr_stress_013",
+    "intent": "RECON_USER_ARTIFACTS",
+    "confidence": 0.65,
+    "severity": "MEDIUM",
+    "window_start": "2026-07-29T21:00:00.000000Z",
+    "window_end": "2026-07-29T21:00:00.000000Z",
+    "actor": {
+      "pid": 7890,
+      "image": "C:\\\\Users\\\\Public\\\\stress_runner.exe",
+      "guid": "{s0000000-0000-0000-0000-000000000000}"
+    },
+    "evidence": [
+      "raw_ev_13"
+    ],
+    "attck": {
+      "tactic": "TA0007",
+      "technique": "T1018"
+    },
+    "detector": "StressDetector@1.0",
+    "features": {},
+    "caused_by_mutation": null
+  },
+  {
+    "semantic_id": "sem_stress_014",
+    "session_id": "sess_stress_002",
+    "correlation_id": "corr_stress_014",
+    "intent": "RECON_SYSTEM_UPTIME",
+    "confidence": 0.65,
+    "severity": "MEDIUM",
+    "window_start": "2026-07-29T21:00:00.000000Z",
+    "window_end": "2026-07-29T21:00:00.000000Z",
+    "actor": {
+      "pid": 7890,
+      "image": "C:\\\\Users\\\\Public\\\\stress_runner.exe",
+      "guid": "{s0000000-0000-0000-0000-000000000000}"
+    },
+    "evidence": [
+      "raw_ev_14"
+    ],
+    "attck": {
+      "tactic": "TA0007",
+      "technique": "T1018"
+    },
+    "detector": "StressDetector@1.0",
+    "features": {},
+    "caused_by_mutation": null
+  },
+  {
+    "semantic_id": "sem_stress_015",
+    "session_id": "sess_stress_002",
+    "correlation_id": "corr_stress_015",
+    "intent": "RECON_DEBUGGER",
+    "confidence": 0.65,
+    "severity": "MEDIUM",
+    "window_start": "2026-07-29T21:00:00.000000Z",
+    "window_end": "2026-07-29T21:00:00.000000Z",
+    "actor": {
+      "pid": 7890,
+      "image": "C:\\\\Users\\\\Public\\\\stress_runner.exe",
+      "guid": "{s0000000-0000-0000-0000-000000000000}"
+    },
+    "evidence": [
+      "raw_ev_15"
+    ],
+    "attck": {
+      "tactic": "TA0007",
+      "technique": "T1018"
+    },
+    "detector": "StressDetector@1.0",
+    "features": {},
+    "caused_by_mutation": null
+  },
+  {
+    "semantic_id": "sem_stress_016",
+    "session_id": "sess_stress_002",
+    "correlation_id": "corr_stress_016",
+    "intent": "EVADE_SANDBOX_DETECTED",
+    "confidence": 0.6,
+    "severity": "MEDIUM",
+    "window_start": "2026-07-29T21:00:00.000000Z",
+    "window_end": "2026-07-29T21:00:00.000000Z",
+    "actor": {
+      "pid": 7890,
+      "image": "C:\\\\Users\\\\Public\\\\stress_runner.exe",
+      "guid": "{s0000000-0000-0000-0000-000000000000}"
+    },
+    "evidence": [
+      "raw_ev_16"
+    ],
+    "attck": {
+      "tactic": "TA0007",
+      "technique": "T1018"
+    },
+    "detector": "StressDetector@1.0",
+    "features": {},
+    "caused_by_mutation": null
+  },
+  {
+    "semantic_id": "sem_stress_017",
+    "session_id": "sess_stress_002",
+    "correlation_id": "corr_stress_017",
+    "intent": "EVADE_SLEEP_SKIP",
+    "confidence": 0.7,
+    "severity": "MEDIUM",
+    "window_start": "2026-07-29T21:00:00.000000Z",
+    "window_end": "2026-07-29T21:00:00.000000Z",
+    "actor": {
+      "pid": 7890,
+      "image": "C:\\\\Users\\\\Public\\\\stress_runner.exe",
+      "guid": "{s0000000-0000-0000-0000-000000000000}"
+    },
+    "evidence": [
+      "raw_ev_17"
+    ],
+    "attck": {
+      "tactic": "TA0007",
+      "technique": "T1018"
+    },
+    "detector": "StressDetector@1.0",
+    "features": {},
+    "caused_by_mutation": null
+  },
+  {
+    "semantic_id": "sem_stress_018",
+    "session_id": "sess_stress_002",
+    "correlation_id": "corr_stress_018",
+    "intent": "C2_BEACON",
+    "confidence": 0.7,
+    "severity": "MEDIUM",
+    "window_start": "2026-07-29T21:00:00.000000Z",
+    "window_end": "2026-07-29T21:00:00.000000Z",
+    "actor": {
+      "pid": 7890,
+      "image": "C:\\\\Users\\\\Public\\\\stress_runner.exe",
+      "guid": "{s0000000-0000-0000-0000-000000000000}"
+    },
+    "evidence": [
+      "raw_ev_18"
+    ],
+    "attck": {
+      "tactic": "TA0007",
+      "technique": "T1018"
+    },
+    "detector": "StressDetector@1.0",
+    "features": {},
+    "caused_by_mutation": null
+  },
+  {
+    "semantic_id": "sem_stress_019",
+    "session_id": "sess_stress_002",
+    "correlation_id": "corr_stress_019",
+    "intent": "RECON_DOMAIN_CONTROLLER",
+    "confidence": 0.75,
+    "severity": "MEDIUM",
+    "window_start": "2026-07-29T21:00:00.000000Z",
+    "window_end": "2026-07-29T21:00:00.000000Z",
+    "actor": {
+      "pid": 7890,
+      "image": "C:\\\\Users\\\\Public\\\\stress_runner.exe",
+      "guid": "{s0000000-0000-0000-0000-000000000000}"
+    },
+    "evidence": [
+      "raw_ev_19"
+    ],
+    "attck": {
+      "tactic": "TA0007",
+      "technique": "T1018"
+    },
+    "detector": "StressDetector@1.0",
+    "features": {
+      "ldap_attempts": 3,
+      "all_failed": true
+    },
+    "caused_by_mutation": null
+  },
+  {
+    "semantic_id": "sem_stress_020",
+    "session_id": "sess_stress_002",
+    "correlation_id": "corr_stress_020",
+    "intent": "CRED_BROWSER_STORE",
+    "confidence": 0.75,
+    "severity": "MEDIUM",
+    "window_start": "2026-07-29T21:00:00.000000Z",
+    "window_end": "2026-07-29T21:00:00.000000Z",
+    "actor": {
+      "pid": 7890,
+      "image": "C:\\\\Users\\\\Public\\\\stress_runner.exe",
+      "guid": "{s0000000-0000-0000-0000-000000000000}"
+    },
+    "evidence": [
+      "raw_ev_20"
+    ],
+    "attck": {
+      "tactic": "TA0007",
+      "technique": "T1018"
+    },
+    "detector": "StressDetector@1.0",
+    "features": {},
+    "caused_by_mutation": null
+  },
+  {
+    "semantic_id": "sem_stress_021",
+    "session_id": "sess_stress_002",
+    "correlation_id": "corr_stress_021",
+    "intent": "CRED_WALLET_SEARCH",
+    "confidence": 0.8,
+    "severity": "MEDIUM",
+    "window_start": "2026-07-29T21:00:00.000000Z",
+    "window_end": "2026-07-29T21:00:00.000000Z",
+    "actor": {
+      "pid": 7890,
+      "image": "C:\\\\Users\\\\Public\\\\stress_runner.exe",
+      "guid": "{s0000000-0000-0000-0000-000000000000}"
+    },
+    "evidence": [
+      "raw_ev_21"
+    ],
+    "attck": {
+      "tactic": "TA0007",
+      "technique": "T1018"
+    },
+    "detector": "StressDetector@1.0",
+    "features": {},
+    "caused_by_mutation": null
+  },
+  {
+    "semantic_id": "sem_stress_022",
+    "session_id": "sess_stress_002",
+    "correlation_id": "corr_stress_022",
+    "intent": "RECON_INSTALLED_AV",
+    "confidence": 0.7,
+    "severity": "MEDIUM",
+    "window_start": "2026-07-29T21:00:00.000000Z",
+    "window_end": "2026-07-29T21:00:00.000000Z",
+    "actor": {
+      "pid": 7890,
+      "image": "C:\\\\Users\\\\Public\\\\stress_runner.exe",
+      "guid": "{s0000000-0000-0000-0000-000000000000}"
+    },
+    "evidence": [
+      "raw_ev_22"
+    ],
+    "attck": {
+      "tactic": "TA0007",
+      "technique": "T1018"
+    },
+    "detector": "StressDetector@1.0",
+    "features": {},
+    "caused_by_mutation": null
+  },
+  {
+    "semantic_id": "sem_stress_023",
+    "session_id": "sess_stress_002",
+    "correlation_id": "corr_stress_023",
+    "intent": "RECON_VIRTUALISATION",
+    "confidence": 0.65,
+    "severity": "MEDIUM",
+    "window_start": "2026-07-29T21:00:00.000000Z",
+    "window_end": "2026-07-29T21:00:00.000000Z",
+    "actor": {
+      "pid": 7890,
+      "image": "C:\\\\Users\\\\Public\\\\stress_runner.exe",
+      "guid": "{s0000000-0000-0000-0000-000000000000}"
+    },
+    "evidence": [
+      "raw_ev_23"
+    ],
+    "attck": {
+      "tactic": "TA0007",
+      "technique": "T1018"
+    },
+    "detector": "StressDetector@1.0",
+    "features": {},
+    "caused_by_mutation": null
+  },
+  {
+    "semantic_id": "sem_stress_024",
+    "session_id": "sess_stress_002",
+    "correlation_id": "corr_stress_024",
+    "intent": "RECON_NETWORK_SHARES",
+    "confidence": 0.7,
+    "severity": "MEDIUM",
+    "window_start": "2026-07-29T21:00:00.000000Z",
+    "window_end": "2026-07-29T21:00:00.000000Z",
+    "actor": {
+      "pid": 7890,
+      "image": "C:\\\\Users\\\\Public\\\\stress_runner.exe",
+      "guid": "{s0000000-0000-0000-0000-000000000000}"
+    },
+    "evidence": [
+      "raw_ev_24"
+    ],
+    "attck": {
+      "tactic": "TA0007",
+      "technique": "T1018"
+    },
+    "detector": "StressDetector@1.0",
+    "features": {},
+    "caused_by_mutation": null
+  },
+  {
+    "semantic_id": "sem_stress_025",
+    "session_id": "sess_stress_003",
+    "correlation_id": "corr_stress_025",
+    "intent": "RECON_DOMAIN_CONTROLLER",
+    "confidence": 0.55,
+    "severity": "MEDIUM",
+    "window_start": "2026-07-29T21:00:00.000000Z",
+    "window_end": "2026-07-29T21:00:00.000000Z",
+    "actor": {
+      "pid": 7890,
+      "image": "C:\\\\Users\\\\Public\\\\stress_runner.exe",
+      "guid": "{s0000000-0000-0000-0000-000000000000}"
+    },
+    "evidence": [
+      "raw_ev_25"
+    ],
+    "attck": {
+      "tactic": "TA0007",
+      "technique": "T1018"
+    },
+    "detector": "StressDetector@1.0",
+    "features": {
+      "ldap_attempts": 1
+    },
+    "caused_by_mutation": null
+  },
+  {
+    "semantic_id": "sem_stress_026",
+    "session_id": "sess_stress_003",
+    "correlation_id": "corr_stress_026",
+    "intent": "EVADE_SANDBOX_DETECTED",
+    "confidence": 0.45,
+    "severity": "MEDIUM",
+    "window_start": "2026-07-29T21:00:00.000000Z",
+    "window_end": "2026-07-29T21:00:00.000000Z",
+    "actor": {
+      "pid": 7890,
+      "image": "C:\\\\Users\\\\Public\\\\stress_runner.exe",
+      "guid": "{s0000000-0000-0000-0000-000000000000}"
+    },
+    "evidence": [
+      "raw_ev_26"
+    ],
+    "attck": {
+      "tactic": "TA0007",
+      "technique": "T1018"
+    },
+    "detector": "StressDetector@1.0",
+    "features": {},
+    "caused_by_mutation": null
+  },
+  {
+    "semantic_id": "sem_stress_027",
+    "session_id": "sess_stress_003",
+    "correlation_id": "corr_stress_027",
+    "intent": "UNKNOWN_EXPLOIT_ATTEMPT",
+    "confidence": 0.95,
+    "severity": "MEDIUM",
+    "window_start": "2026-07-29T21:00:00.000000Z",
+    "window_end": "2026-07-29T21:00:00.000000Z",
+    "actor": {
+      "pid": 7890,
+      "image": "C:\\\\Users\\\\Public\\\\stress_runner.exe",
+      "guid": "{s0000000-0000-0000-0000-000000000000}"
+    },
+    "evidence": [
+      "raw_ev_27"
+    ],
+    "attck": {
+      "tactic": "TA0007",
+      "technique": "T1018"
+    },
+    "detector": "StressDetector@1.0",
+    "features": {},
+    "caused_by_mutation": null
+  },
+  {
+    "semantic_id": "sem_stress_028",
+    "session_id": "sess_stress_003",
+    "correlation_id": "corr_stress_028",
+    "intent": "RECON_TYPO_INTENT",
+    "confidence": 0.88,
+    "severity": "MEDIUM",
+    "window_start": "2026-07-29T21:00:00.000000Z",
+    "window_end": "2026-07-29T21:00:00.000000Z",
+    "actor": {
+      "pid": 7890,
+      "image": "C:\\\\Users\\\\Public\\\\stress_runner.exe",
+      "guid": "{s0000000-0000-0000-0000-000000000000}"
+    },
+    "evidence": [
+      "raw_ev_28"
+    ],
+    "attck": {
+      "tactic": "TA0007",
+      "technique": "T1018"
+    },
+    "detector": "StressDetector@1.0",
+    "features": {},
+    "caused_by_mutation": null
+  },
+  {
+    "semantic_id": "sem_stress_029",
+    "session_id": "sess_stress_003",
+    "correlation_id": "corr_stress_029",
+    "intent": "INVALID_TACTIC_X",
+    "confidence": 0.9,
+    "severity": "MEDIUM",
+    "window_start": "2026-07-29T21:00:00.000000Z",
+    "window_end": "2026-07-29T21:00:00.000000Z",
+    "actor": {
+      "pid": 7890,
+      "image": "C:\\\\Users\\\\Public\\\\stress_runner.exe",
+      "guid": "{s0000000-0000-0000-0000-000000000000}"
+    },
+    "evidence": [
+      "raw_ev_29"
+    ],
+    "attck": {
+      "tactic": "TA0007",
+      "technique": "T1018"
+    },
+    "detector": "StressDetector@1.0",
+    "features": {},
+    "caused_by_mutation": null
+  },
+  {
+    "semantic_id": "sem_stress_030",
+    "session_id": "sess_stress_003",
+    "correlation_id": "corr_stress_030",
+    "intent": "RECON_USER_ARTIFACTS",
+    "confidence": 0.75,
+    "severity": "MEDIUM",
+    "window_start": "2026-07-29T21:00:00.000000Z",
+    "window_end": "2026-07-29T21:00:00.000000Z",
+    "actor": {
+      "pid": 7890,
+      "image": "C:\\\\Users\\\\Public\\\\stress_runner.exe",
+      "guid": "{s0000000-0000-0000-0000-000000000000}"
+    },
+    "evidence": [
+      "raw_ev_30"
+    ],
+    "attck": {
+      "tactic": "TA0007",
+      "technique": "T1018"
+    },
+    "detector": "StressDetector@1.0",
+    "features": {},
+    "caused_by_mutation": null
+  },
+  {
+    "semantic_id": "sem_stress_031",
+    "session_id": "sess_stress_003",
+    "correlation_id": "corr_stress_031",
+    "intent": "RECON_SYSTEM_UPTIME",
+    "confidence": 0.75,
+    "severity": "MEDIUM",
+    "window_start": "2026-07-29T21:00:00.000000Z",
+    "window_end": "2026-07-29T21:00:00.000000Z",
+    "actor": {
+      "pid": 7890,
+      "image": "C:\\\\Users\\\\Public\\\\stress_runner.exe",
+      "guid": "{s0000000-0000-0000-0000-000000000000}"
+    },
+    "evidence": [
+      "raw_ev_31"
+    ],
+    "attck": {
+      "tactic": "TA0007",
+      "technique": "T1018"
+    },
+    "detector": "StressDetector@1.0",
+    "features": {},
+    "caused_by_mutation": null
+  },
+  {
+    "semantic_id": "sem_stress_032",
+    "session_id": "sess_stress_003",
+    "correlation_id": "corr_stress_032",
+    "intent": "RECON_DEBUGGER",
+    "confidence": 0.75,
+    "severity": "MEDIUM",
+    "window_start": "2026-07-29T21:00:00.000000Z",
+    "window_end": "2026-07-29T21:00:00.000000Z",
+    "actor": {
+      "pid": 7890,
+      "image": "C:\\\\Users\\\\Public\\\\stress_runner.exe",
+      "guid": "{s0000000-0000-0000-0000-000000000000}"
+    },
+    "evidence": [
+      "raw_ev_32"
+    ],
+    "attck": {
+      "tactic": "TA0007",
+      "technique": "T1018"
+    },
+    "detector": "StressDetector@1.0",
+    "features": {},
+    "caused_by_mutation": null
+  },
+  {
+    "semantic_id": "sem_stress_033",
+    "session_id": "sess_stress_003",
+    "correlation_id": "corr_stress_033",
+    "intent": "PERSIST_RUN_KEY",
+    "confidence": 0.88,
+    "severity": "MEDIUM",
+    "window_start": "2026-07-29T21:00:00.000000Z",
+    "window_end": "2026-07-29T21:00:00.000000Z",
+    "actor": {
+      "pid": 7890,
+      "image": "C:\\\\Users\\\\Public\\\\stress_runner.exe",
+      "guid": "{s0000000-0000-0000-0000-000000000000}"
+    },
+    "evidence": [
+      "raw_ev_33"
+    ],
+    "attck": {
+      "tactic": "TA0007",
+      "technique": "T1018"
+    },
+    "detector": "StressDetector@1.0",
+    "features": {
+      "distinct_registry_keys": 7
+    },
+    "caused_by_mutation": null
+  },
+  {
+    "semantic_id": "sem_stress_034",
+    "session_id": "sess_stress_004",
+    "correlation_id": "corr_stress_034",
+    "intent": "EVADE_SLEEP_SKIP",
+    "confidence": 0.85,
+    "severity": "MEDIUM",
+    "window_start": "2026-07-29T21:00:00.000000Z",
+    "window_end": "2026-07-29T21:00:00.000000Z",
+    "actor": {
+      "pid": 7890,
+      "image": "C:\\\\Users\\\\Public\\\\stress_runner.exe",
+      "guid": "{s0000000-0000-0000-0000-000000000000}"
+    },
+    "evidence": [
+      "raw_ev_34"
+    ],
+    "attck": {
+      "tactic": "TA0007",
+      "technique": "T1018"
+    },
+    "detector": "StressDetector@1.0",
+    "features": {},
+    "caused_by_mutation": null
+  },
+  {
+    "semantic_id": "sem_stress_035",
+    "session_id": "sess_stress_004",
+    "correlation_id": "corr_stress_035",
+    "intent": "C2_BEACON",
+    "confidence": 0.92,
+    "severity": "MEDIUM",
+    "window_start": "2026-07-29T21:00:00.000000Z",
+    "window_end": "2026-07-29T21:00:00.000000Z",
+    "actor": {
+      "pid": 7890,
+      "image": "C:\\\\Users\\\\Public\\\\stress_runner.exe",
+      "guid": "{s0000000-0000-0000-0000-000000000000}"
+    },
+    "evidence": [
+      "raw_ev_35"
+    ],
+    "attck": {
+      "tactic": "TA0007",
+      "technique": "T1018"
+    },
+    "detector": "StressDetector@1.0",
+    "features": {},
+    "caused_by_mutation": null
+  },
+  {
+    "semantic_id": "sem_stress_036",
+    "session_id": "sess_stress_005",
+    "correlation_id": "corr_stress_036",
+    "intent": "RECON_INSTALLED_AV",
+    "confidence": 0.8,
+    "severity": "MEDIUM",
+    "window_start": "2026-07-29T21:00:00.000000Z",
+    "window_end": "2026-07-29T21:00:00.000000Z",
+    "actor": {
+      "pid": 7890,
+      "image": "C:\\\\Users\\\\Public\\\\stress_runner.exe",
+      "guid": "{s0000000-0000-0000-0000-000000000000}"
+    },
+    "evidence": [
+      "raw_ev_36"
+    ],
+    "attck": {
+      "tactic": "TA0007",
+      "technique": "T1018"
+    },
+    "detector": "StressDetector@1.0",
+    "features": {},
+    "caused_by_mutation": null
+  },
+  {
+    "semantic_id": "sem_stress_037",
+    "session_id": "sess_stress_005",
+    "correlation_id": "corr_stress_037",
+    "intent": "CRED_WALLET_SEARCH",
+    "confidence": 0.85,
+    "severity": "MEDIUM",
+    "window_start": "2026-07-29T21:00:00.000000Z",
+    "window_end": "2026-07-29T21:00:00.000000Z",
+    "actor": {
+      "pid": 7890,
+      "image": "C:\\\\Users\\\\Public\\\\stress_runner.exe",
+      "guid": "{s0000000-0000-0000-0000-000000000000}"
+    },
+    "evidence": [
+      "raw_ev_37"
+    ],
+    "attck": {
+      "tactic": "TA0007",
+      "technique": "T1018"
+    },
+    "detector": "StressDetector@1.0",
+    "features": {},
+    "caused_by_mutation": null
+  },
+  {
+    "semantic_id": "sem_stress_038",
+    "session_id": "sess_stress_006",
+    "correlation_id": "corr_stress_038",
+    "intent": "PERSIST_RUN_KEY",
+    "confidence": 0.85,
+    "severity": "MEDIUM",
+    "window_start": "2026-07-29T21:00:00.000000Z",
+    "window_end": "2026-07-29T21:00:00.000000Z",
+    "actor": {
+      "pid": 7890,
+      "image": "C:\\\\Users\\\\Public\\\\stress_runner.exe",
+      "guid": "{s0000000-0000-0000-0000-000000000000}"
+    },
+    "evidence": [
+      "raw_ev_38"
+    ],
+    "attck": {
+      "tactic": "TA0007",
+      "technique": "T1018"
+    },
+    "detector": "StressDetector@1.0",
+    "features": {
+      "distinct_registry_keys": 6
+    },
+    "caused_by_mutation": null
+  },
+  {
+    "semantic_id": "sem_stress_039",
+    "session_id": "sess_stress_006",
+    "correlation_id": "corr_stress_039",
+    "intent": "PERSIST_RUN_KEY",
+    "confidence": 0.85,
+    "severity": "MEDIUM",
+    "window_start": "2026-07-29T21:00:05.000000Z",
+    "window_end": "2026-07-29T21:00:05.000000Z",
+    "actor": {
+      "pid": 7890,
+      "image": "C:\\\\Users\\\\Public\\\\stress_runner.exe",
+      "guid": "{s0000000-0000-0000-0000-000000000000}"
+    },
+    "evidence": [
+      "raw_ev_39"
+    ],
+    "attck": {
+      "tactic": "TA0007",
+      "technique": "T1018"
+    },
+    "detector": "StressDetector@1.0",
+    "features": {
+      "distinct_registry_keys": 6
+    },
+    "caused_by_mutation": null
+  },
+  {
+    "semantic_id": "sem_stress_040",
+    "session_id": "sess_stress_006",
+    "correlation_id": "corr_stress_040",
+    "intent": "PERSIST_RUN_KEY",
+    "confidence": 0.85,
+    "severity": "MEDIUM",
+    "window_start": "2026-07-29T21:01:10.000000Z",
+    "window_end": "2026-07-29T21:01:10.000000Z",
+    "actor": {
+      "pid": 7890,
+      "image": "C:\\\\Users\\\\Public\\\\stress_runner.exe",
+      "guid": "{s0000000-0000-0000-0000-000000000000}"
+    },
+    "evidence": [
+      "raw_ev_40"
+    ],
+    "attck": {
+      "tactic": "TA0007",
+      "technique": "T1018"
+    },
+    "detector": "StressDetector@1.0",
+    "features": {
+      "distinct_registry_keys": 6
+    },
+    "caused_by_mutation": null
+  },
+  {
+    "semantic_id": "sem_stress_041",
+    "session_id": "sess_stress_006",
+    "correlation_id": "corr_stress_041",
+    "intent": "PERSIST_RUN_KEY",
+    "confidence": 0.85,
+    "severity": "MEDIUM",
+    "window_start": "2026-07-29T21:01:15.000000Z",
+    "window_end": "2026-07-29T21:01:15.000000Z",
+    "actor": {
+      "pid": 7890,
+      "image": "C:\\\\Users\\\\Public\\\\stress_runner.exe",
+      "guid": "{s0000000-0000-0000-0000-000000000000}"
+    },
+    "evidence": [
+      "raw_ev_41"
+    ],
+    "attck": {
+      "tactic": "TA0007",
+      "technique": "T1018"
+    },
+    "detector": "StressDetector@1.0",
+    "features": {
+      "distinct_registry_keys": 6
+    },
+    "caused_by_mutation": null
+  },
+  {
+    "semantic_id": "sem_stress_042",
+    "session_id": "sess_stress_006",
+    "correlation_id": "corr_stress_042",
+    "intent": "RECON_VIRTUALISATION",
+    "confidence": 0.85,
+    "severity": "MEDIUM",
+    "window_start": "2026-07-29T21:01:20.000000Z",
+    "window_end": "2026-07-29T21:01:20.000000Z",
+    "actor": {
+      "pid": 7890,
+      "image": "C:\\\\Users\\\\Public\\\\stress_runner.exe",
+      "guid": "{s0000000-0000-0000-0000-000000000000}"
+    },
+    "evidence": [
+      "raw_ev_42"
+    ],
+    "attck": {
+      "tactic": "TA0007",
+      "technique": "T1018"
+    },
+    "detector": "StressDetector@1.0",
+    "features": {},
+    "caused_by_mutation": null
+  },
+  {
+    "semantic_id": "sem_stress_043",
+    "session_id": "sess_stress_006",
+    "correlation_id": "corr_stress_043",
+    "intent": "RECON_NETWORK_SHARES",
+    "confidence": 0.85,
+    "severity": "MEDIUM",
+    "window_start": "2026-07-29T21:01:25.000000Z",
+    "window_end": "2026-07-29T21:01:25.000000Z",
+    "actor": {
+      "pid": 7890,
+      "image": "C:\\\\Users\\\\Public\\\\stress_runner.exe",
+      "guid": "{s0000000-0000-0000-0000-000000000000}"
+    },
+    "evidence": [
+      "raw_ev_43"
+    ],
+    "attck": {
+      "tactic": "TA0007",
+      "technique": "T1018"
+    },
+    "detector": "StressDetector@1.0",
+    "features": {},
+    "caused_by_mutation": null
+  },
+  {
+    "semantic_id": "sem_stress_044",
+    "session_id": "sess_stress_006",
+    "correlation_id": "corr_stress_044",
+    "intent": "EVADE_SANDBOX_DETECTED",
+    "confidence": 0.85,
+    "severity": "MEDIUM",
+    "window_start": "2026-07-29T21:01:30.000000Z",
+    "window_end": "2026-07-29T21:01:30.000000Z",
+    "actor": {
+      "pid": 7890,
+      "image": "C:\\\\Users\\\\Public\\\\stress_runner.exe",
+      "guid": "{s0000000-0000-0000-0000-000000000000}"
+    },
+    "evidence": [
+      "raw_ev_44"
+    ],
+    "attck": {
+      "tactic": "TA0007",
+      "technique": "T1018"
+    },
+    "detector": "StressDetector@1.0",
+    "features": {},
+    "caused_by_mutation": null
+  },
+  {
+    "semantic_id": "sem_stress_045",
+    "session_id": "sess_stress_006",
+    "correlation_id": "corr_stress_045",
+    "intent": "C2_BEACON",
+    "confidence": 0.85,
+    "severity": "MEDIUM",
+    "window_start": "2026-07-29T21:01:35.000000Z",
+    "window_end": "2026-07-29T21:01:35.000000Z",
+    "actor": {
+      "pid": 7890,
+      "image": "C:\\\\Users\\\\Public\\\\stress_runner.exe",
+      "guid": "{s0000000-0000-0000-0000-000000000000}"
+    },
+    "evidence": [
+      "raw_ev_45"
+    ],
+    "attck": {
+      "tactic": "TA0007",
+      "technique": "T1018"
+    },
+    "detector": "StressDetector@1.0",
+    "features": {},
+    "caused_by_mutation": null
+  }
+]

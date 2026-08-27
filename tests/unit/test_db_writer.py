@@ -108,7 +108,7 @@ async def test_writer_backpressure_shedding(db, raw_envelope, semantic_envelope)
         assert isinstance(env.payload, SemanticEvent)
 
 @pytest.mark.asyncio
-async def test_writer_batching_and_flush(db, raw_envelope):
+async def test_writer_batching_and_flush(db, semantic_envelope):
     bus = EventBus()
     writer = DBWriter(db, bus, max_queue_size=10, batch_size=5, flush_interval_s=0.1)
     writer.start()
@@ -120,14 +120,15 @@ async def test_writer_batching_and_flush(db, raw_envelope):
         ("sess_1", "exp", "sha", "CONTROL", "COMPLETED", datetime.now(timezone.utc).isoformat(), "{}")
     )
     
-    # Publish an event through the bus
-    await bus.publish(raw_envelope)
+    # Publish a semantic event through the bus
+    await bus.publish(semantic_envelope)
     
     # Wait for the flush interval
     await asyncio.sleep(0.3)
     
     # Check database
-    events = await writer.event_repo.get_raw_by_session("sess_1")
+    events = await writer.event_repo.get_semantic_by_session("sess_1")
     assert len(events) == 1
     
     await writer.stop()
+

@@ -92,7 +92,7 @@ class SQLiteEventRepository(IEventRepository):
 
     async def create_semantic(self, event: SemanticEvent) -> None:
         await self.db.execute(
-            "INSERT INTO semantic_events (semantic_id, session_id, correlation_id, intent, confidence, window_start, caused_by_mutation, payload) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT OR IGNORE INTO semantic_events (semantic_id, session_id, correlation_id, intent, confidence, window_start, caused_by_mutation, payload) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 event.semantic_id,
                 event.session_id,
@@ -119,7 +119,7 @@ class SQLiteDecisionRepository(IDecisionRepository):
 
     async def create(self, decision: PolicyDecision) -> None:
         await self.db.execute(
-            "INSERT INTO policy_decisions (decision_id, session_id, correlation_id, triggered_by, rule_id, verdict, decided_at, payload) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT OR IGNORE INTO policy_decisions (decision_id, session_id, correlation_id, triggered_by, rule_id, verdict, decided_at, payload) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 decision.decision_id,
                 decision.session_id,
@@ -146,7 +146,7 @@ class SQLiteMutationRepository(IMutationRepository):
 
     async def create(self, mutation: MutationResult) -> None:
         await self.db.execute(
-            "INSERT INTO mutations (mutation_id, session_id, correlation_id, decision_id, status, applied_at, payload) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "INSERT OR IGNORE INTO mutations (mutation_id, session_id, correlation_id, decision_id, status, applied_at, payload) VALUES (?, ?, ?, ?, ?, ?, ?)",
             (
                 mutation.mutation_id,
                 mutation.session_id,

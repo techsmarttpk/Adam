@@ -167,7 +167,7 @@ text string.
 | Method | Path | Request body | `data` on success |
 |---|---|---|---|
 | POST | `/sample/upload` | `{"filename": str, "sha256": str, "content_base64": str}` | `{"staged_path": str, "sha256_verified": bool}` |
-| POST | `/sample/stage` | `{"staged_path": str, "target_path": str}` | `{"target_path": str}` |
+| POST | `/sample/stage` | `{"target_path": str, "content_base64": str\|null, "sha256": str\|null, "staged_path": str\|null}` | `{"target_path": str, "sha256": str\|null, "size_bytes": int\|null}` |
 
 Samples are transferred as base64-encoded JSON, not multipart, to keep every endpoint in this API
 symmetric (single JSON body in, single JSON envelope out) — acceptable for this project's sample

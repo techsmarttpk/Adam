@@ -112,6 +112,19 @@ class BaseCollector(abc.ABC):
                     # buffer has room again, loop back to put_nowait().
                     continue
 
+    def ingest(self, event: RawEvent) -> None:
+        """
+        Public method to ingest a live RawEvent directly into this collector's
+        event queue, allowing live HTTP agent telemetry streams to share the same
+        processing pipeline as file-tailing collectors.
+        """
+        self._emit(event)
+
+    def ingest_batch(self, events: list[RawEvent]) -> None:
+        """Ingest a batch of live RawEvents."""
+        for event in events:
+            self._emit(event)
+
     async def start(self) -> None:
         """
         ICollector.start(). Idempotent: calling start() while already

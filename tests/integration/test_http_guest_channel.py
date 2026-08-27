@@ -105,6 +105,22 @@ class FakeGuestAgentServer:
             self.files[body["output_path"]] = b"FAKE-EVTX"
             return _envelope({"output_path": body["output_path"], "mechanism": "wevtutil"})
 
+        if method == "POST" and path == "/sample/stage":
+            target = body.get("target_path", "")
+            b64 = body.get("content_base64")
+            if b64:
+                import base64
+                import hashlib
+                raw_bytes = base64.b64decode(b64)
+                actual_sha = hashlib.sha256(raw_bytes).hexdigest()
+                self.files[target] = raw_bytes
+                return _envelope({"target_path": target, "sha256": actual_sha, "size_bytes": len(raw_bytes)})
+            return _envelope({"target_path": target, "sha256": "0" * 64, "size_bytes": 0})
+
+        if method == "POST" and path == "/process/start":
+            exit_code = body.get("mock_exit_code", 0)
+            return _envelope({"pid": 5555, "exit_code": exit_code, "stdout": "test_stdout\n", "stderr": ""})
+
         if method == "GET" and path == "/filesystem/read":
             guest_path = params.get("path", "")
             if guest_path not in self.files:
@@ -447,3 +463,302 @@ async def test_verify_tools_folds_readiness_timeout_into_detail_without_raising(
     assert report.sysmon_log_available is False
     assert "agent" in report.detail
     assert "did not become healthy" in report.detail["agent"]
+
+
+async def test_http_guest_channel_attaches_auth_token() -> None:
+    captured_tokens: list[str | None] = []
+
+    def _handler(request: httpx.Request) -> httpx.Response:
+        captured_tokens.append(request.headers.get("X-Adam-Token"))
+        return _envelope({"status": "ok"})
+
+    transport = httpx.MockTransport(_handler)
+    client = httpx.AsyncClient(transport=transport, base_url="http://192.168.19.101:8765")
+    channel = HTTPGuestChannel(
+        "http://192.168.19.101:8765",
+        capture_dir="C:\\ADAM\\telemetry",
+        procmon_path="C:\\Procmon.exe",
+        tshark_path="C:\\tshark.exe",
+        sysmon_log="Microsoft-Windows-Sysmon/Operational",
+        auth_token="secops_super_secret_token",
+        client=client,
+    )
+
+    await channel.wait_until_ready()
+    assert len(captured_tokens) == 1
+    assert captured_tokens[0] == "secops_super_secret_token"
+
+
+async def test_http_guest_channel_handles_401_unauthorized() -> None:
+    def _auth_reject_handler(request: httpx.Request) -> httpx.Response:
+        token = request.headers.get("X-Adam-Token")
+        if token != "valid_token":
+            return httpx.Response(401, json={"success": False, "error_code": "UNAUTHORIZED", "error_message": "invalid token"})
+        return _envelope({"status": "ok"})
+
+    transport = httpx.MockTransport(_auth_reject_handler)
+    client = httpx.AsyncClient(transport=transport, base_url="http://192.168.19.101:8765")
+
+    # 1. Direct HTTP request with wrong token asserts status 401 explicitly
+    resp_wrong = await client.get("/health", headers={"X-Adam-Token": "wrong_token"})
+    assert resp_wrong.status_code == 401
+    assert resp_wrong.json()["error_code"] == "UNAUTHORIZED"
+
+    # 2. Direct HTTP request with missing token asserts status 401 explicitly
+    resp_missing = await client.get("/health")
+    assert resp_missing.status_code == 401
+    assert resp_missing.json()["error_code"] == "UNAUTHORIZED"
+
+    # 3. Direct probe inside HTTPGuestChannel detects HTTP 401 explicitly
+    channel = HTTPGuestChannel(
+        "http://192.168.19.101:8765",
+        capture_dir="C:\\ADAM\\telemetry",
+        procmon_path="C:\\Procmon.exe",
+        tshark_path="C:\\tshark.exe",
+        sysmon_log="Microsoft-Windows-Sysmon/Operational",
+        auth_token="wrong_token",
+        client=client,
+    )
+    healthy, detail = await channel._probe_health_once()
+    assert healthy is False
+    assert detail == "HTTP 401"
+
+
+# --------------------------------------------------------------------- #
+# Stage A: stage_sample, run_process, and SandboxController migration
+# --------------------------------------------------------------------- #
+
+
+async def test_stage_sample_success(tmp_path: Path) -> None:
+    sample_file = tmp_path / "test_sample.exe"
+    sample_file.write_bytes(b"\x90\x90\x90HELLO_TEST_PAYLOAD")
+    expected_sha256 = "657158784a0d9e871e84df94dfcb547f382103f6984e7ad18939b4bc063f25c7"
+    import hashlib
+    actual_expected_sha = hashlib.sha256(sample_file.read_bytes()).hexdigest()
+
+    fake = FakeGuestAgentServer()
+    channel = _make_channel(fake)
+    result = await channel.stage_sample(sample_file, "C:\\ADAM\\sample.exe")
+
+    assert result.success is True
+    assert result.target_path == "C:\\ADAM\\sample.exe"
+    assert result.sha256 == actual_expected_sha
+    assert result.size_bytes == len(sample_file.read_bytes())
+    assert fake.files["C:\\ADAM\\sample.exe"] == sample_file.read_bytes()
+    assert ("POST", "/sample/stage") in fake.calls
+
+
+async def test_stage_sample_hash_mismatch_raises_value_error(tmp_path: Path) -> None:
+    sample_file = tmp_path / "test_sample.exe"
+    sample_file.write_bytes(b"PAYLOAD")
+
+    def _corrupted_hash_handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/sample/stage":
+            return _envelope({"target_path": "C:\\ADAM\\sample.exe", "sha256": "corrupted_hash_0000", "size_bytes": 7})
+        return _envelope({"status": "ok"})
+
+    transport = httpx.MockTransport(_corrupted_hash_handler)
+    client = httpx.AsyncClient(transport=transport, base_url="http://fake-guest:8765")
+    channel = HTTPGuestChannel(
+        "http://fake-guest:8765",
+        capture_dir="C:\\ADAM\\telemetry",
+        procmon_path="C:\\Procmon.exe",
+        tshark_path="C:\\tshark.exe",
+        sysmon_log="Sysmon",
+        client=client,
+    )
+
+    with pytest.raises(ValueError) as excinfo:
+        await channel.stage_sample(sample_file, "C:\\ADAM\\sample.exe")
+    assert "Sample SHA256 mismatch during staging" in str(excinfo.value)
+
+
+async def test_stage_sample_auth_rejection_raises_guest_agent_error(tmp_path: Path) -> None:
+    from adam.sandbox.guest.http_models import GuestAgentError
+
+    sample_file = tmp_path / "test_sample.exe"
+    sample_file.write_bytes(b"PAYLOAD")
+
+    def _auth_fail_handler(request: httpx.Request) -> httpx.Response:
+        return _envelope(success=False, error_code="UNAUTHORIZED", error_message="Invalid token")
+
+    transport = httpx.MockTransport(_auth_fail_handler)
+    client = httpx.AsyncClient(transport=transport, base_url="http://fake-guest:8765")
+    channel = HTTPGuestChannel(
+        "http://fake-guest:8765",
+        capture_dir="C:\\ADAM\\telemetry",
+        procmon_path="C:\\Procmon.exe",
+        tshark_path="C:\\tshark.exe",
+        sysmon_log="Sysmon",
+        client=client,
+    )
+
+    with pytest.raises(GuestAgentError) as excinfo:
+        await channel.stage_sample(sample_file, "C:\\ADAM\\sample.exe")
+    assert excinfo.value.error_code == "UNAUTHORIZED"
+
+
+async def test_stage_sample_missing_file_raises_filenotfound() -> None:
+    fake = FakeGuestAgentServer()
+    channel = _make_channel(fake)
+    with pytest.raises(FileNotFoundError):
+        await channel.stage_sample("C:\\nonexistent_host_path\\missing.exe", "C:\\ADAM\\sample.exe")
+
+
+async def test_run_process_success() -> None:
+    fake = FakeGuestAgentServer()
+    channel = _make_channel(fake)
+    result = await channel.run_process("C:\\ADAM\\sample.exe", arguments=["/arg1", "val1"])
+
+    assert result.success is True
+    assert result.return_code == 0
+    assert result.stdout == "test_stdout\n"
+    assert result.stderr == ""
+    assert result.termination_reason is None
+    assert ("POST", "/process/start") in fake.calls
+
+
+async def test_run_process_crash_exit_code() -> None:
+    def _crash_handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/process/start":
+            return _envelope({"pid": 5555, "exit_code": 3221226356, "stdout": "", "stderr": ""})
+        return _envelope({"status": "ok"})
+
+    transport = httpx.MockTransport(_crash_handler)
+    client = httpx.AsyncClient(transport=transport, base_url="http://fake-guest:8765")
+    channel = HTTPGuestChannel(
+        "http://fake-guest:8765",
+        capture_dir="C:\\ADAM\\telemetry",
+        procmon_path="C:\\Procmon.exe",
+        tshark_path="C:\\tshark.exe",
+        sysmon_log="Sysmon",
+        client=client,
+    )
+
+    result = await channel.run_process("C:\\ADAM\\sample.exe")
+    assert result.success is False
+    assert result.return_code == 3221226356
+    assert result.termination_reason == "STATUS_HEAP_CORRUPTION"
+
+
+async def test_sandbox_controller_arm_and_detonate_uses_http_channel(tmp_path: Path) -> None:
+    from unittest.mock import AsyncMock, MagicMock
+    from adam.contracts.session import SampleRef
+    from adam.sandbox.controller import SandboxController
+    from adam.sandbox.state import SandboxState
+    from adam.sandbox.vbox.client import VirtualBoxClient
+    from adam.sandbox.vbox.models import VMOperationResult
+
+    sample_file = tmp_path / "smoke.exe"
+    sample_file.write_bytes(b"SMOKE_EXE_BYTES")
+
+    fake = FakeGuestAgentServer()
+    channel = _make_channel(fake)
+
+    mock_client = MagicMock(spec=VirtualBoxClient)
+    mock_client.get_state = AsyncMock(return_value="poweroff")
+    mock_client.restore_snapshot = AsyncMock(return_value=VMOperationResult(True, ("restore",), 10.0, 0, "", ""))
+    mock_client.start = AsyncMock(return_value=VMOperationResult(True, ("start",), 10.0, 0, "", ""))
+    mock_client.wait_for_state = AsyncMock(return_value=VMOperationResult(True, ("wait",), 10.0, 0, "", ""))
+    mock_client.wait_for_guest_ready = AsyncMock(return_value=VMOperationResult(True, ("ready",), 10.0, 0, "", ""))
+    mock_client.stop = AsyncMock(return_value=VMOperationResult(True, ("stop",), 10.0, 0, "", ""))
+    mock_client.copy_to_guest = AsyncMock()
+    mock_client.run_in_guest = AsyncMock()
+
+    ctrl = SandboxController(
+        mock_client,
+        "TestVM",
+        guest_username="Adam",
+        guest_password="Password",
+        guest_channel=channel,
+    )
+
+    await ctrl.prepare()
+    assert ctrl.state == SandboxState.READY
+
+    await ctrl.arm(str(sample_file), "C:\\ADAM\\smoke.exe")
+    assert ctrl.state == SandboxState.ARMED
+    # Assert HTTP staging was used, NOT client.copy_to_guest
+    assert ("POST", "/sample/stage") in fake.calls
+    mock_client.copy_to_guest.assert_not_called()
+
+    sample_ref = SampleRef(
+        sha256="0" * 64,
+        md5="0" * 32,
+        filename="smoke.exe",
+        size_bytes=100,
+        file_type="PE32",
+    )
+    await ctrl.detonate(sample_ref)
+    assert ctrl.state == SandboxState.COMPLETED
+    # Assert HTTP process start was used, NOT client.run_in_guest
+    assert ("POST", "/process/start") in fake.calls
+    mock_client.run_in_guest.assert_not_called()
+    assert ctrl.last_detonation_result.return_code == 0
+
+
+async def test_sandbox_controller_arm_and_detonate_fallback_on_unreachable(tmp_path: Path) -> None:
+    from unittest.mock import AsyncMock, MagicMock
+    from adam.contracts.session import SampleRef
+    from adam.sandbox.controller import SandboxController
+    from adam.sandbox.state import SandboxState
+    from adam.sandbox.vbox.client import VirtualBoxClient
+    from adam.sandbox.vbox.models import VMOperationResult
+
+    sample_file = tmp_path / "smoke.exe"
+    sample_file.write_bytes(b"SMOKE_EXE_BYTES")
+
+    def _unreachable_handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path in ("/sample/stage", "/process/start"):
+            raise httpx.ConnectError("connection refused", request=request)
+        return _envelope({"status": "ok"})
+
+    transport = httpx.MockTransport(_unreachable_handler)
+    client = httpx.AsyncClient(transport=transport, base_url="http://fake-guest:8765")
+    channel = HTTPGuestChannel(
+        "http://fake-guest:8765",
+        capture_dir="C:\\ADAM\\telemetry",
+        procmon_path="C:\\Procmon.exe",
+        tshark_path="C:\\tshark.exe",
+        sysmon_log="Sysmon",
+        client=client,
+    )
+
+    mock_client = MagicMock(spec=VirtualBoxClient)
+    mock_client.get_state = AsyncMock(return_value="poweroff")
+    mock_client.restore_snapshot = AsyncMock(return_value=VMOperationResult(True, ("restore",), 10.0, 0, "", ""))
+    mock_client.start = AsyncMock(return_value=VMOperationResult(True, ("start",), 10.0, 0, "", ""))
+    mock_client.wait_for_state = AsyncMock(return_value=VMOperationResult(True, ("wait",), 10.0, 0, "", ""))
+    mock_client.wait_for_guest_ready = AsyncMock(return_value=VMOperationResult(True, ("ready",), 10.0, 0, "", ""))
+    mock_client.stop = AsyncMock(return_value=VMOperationResult(True, ("stop",), 10.0, 0, "", ""))
+    mock_client.copy_to_guest = AsyncMock(return_value=VMOperationResult(True, ("copyto",), 10.0, 0, "", ""))
+    mock_client.run_in_guest = AsyncMock(return_value=VMOperationResult(True, ("run",), 10.0, 0, "fallback_out", ""))
+
+    ctrl = SandboxController(
+        mock_client,
+        "TestVM",
+        guest_username="Adam",
+        guest_password="Password",
+        guest_channel=channel,
+    )
+
+    await ctrl.prepare()
+    await ctrl.arm(str(sample_file), "C:\\ADAM\\smoke.exe")
+    assert ctrl.state == SandboxState.ARMED
+    # Fallback to copy_to_guest was invoked
+    mock_client.copy_to_guest.assert_called_once()
+
+    sample_ref = SampleRef(
+        sha256="0" * 64,
+        md5="0" * 32,
+        filename="smoke.exe",
+        size_bytes=100,
+        file_type="PE32",
+    )
+    await ctrl.detonate(sample_ref)
+    assert ctrl.state == SandboxState.COMPLETED
+    # Fallback to run_in_guest was invoked
+    mock_client.run_in_guest.assert_called_once()
+    assert ctrl.last_detonation_result.stdout == "fallback_out"
+
+

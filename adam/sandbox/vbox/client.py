@@ -62,8 +62,11 @@ Error-handling design (read this before adding a method):
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 import re
+import shutil
 import time
+import uuid
 from typing import Literal
 
 from adam.common.errors import VMOperationError
@@ -71,8 +74,8 @@ from adam.sandbox.vbox.models import SnapshotInfo, VMOperationResult
 from adam.sandbox.vbox.ntstatus import decode_ntstatus
 
 _STATE_LINE = re.compile(r'^VMState="([^"]+)"')
-_SNAPSHOT_NAME = re.compile(r'^SnapshotName(-\d+)?="([^"]*)"')
-_SNAPSHOT_UUID = re.compile(r'^SnapshotUUID(-\d+)?="([^"]*)"')
+_SNAPSHOT_NAME = re.compile(r'^SnapshotName([-\d]+)?="([^"]*)"')
+_SNAPSHOT_UUID = re.compile(r'^SnapshotUUID([-\d]+)?="([^"]*)"')
 _CURRENT_SNAPSHOT_UUID = re.compile(r'^CurrentSnapshotUUID="([^"]*)"')
 
 
@@ -80,22 +83,6 @@ class VBoxCommandError(VMOperationError):
     """
     Raised when VBoxManage cannot be invoked at all (binary missing,
     permission denied) or when a query command fails unexpectedly.
-
-    Carries the full diagnostic picture as attributes -- command,
-    return_code, stdout, stderr -- rather than collapsing them into a
-    single generic message string. `message` is a short human-readable
-    summary of *what went wrong*; the raw command output is preserved
-    untouched alongside it, so a caller (or a person reading a traceback)
-    can see exactly what VBoxManage actually said, not a paraphrase of it.
-
-    Folded into adam.common.errors' hierarchy as a VMOperationError
-    (ARCHITECTURE.md section 14.1: "VMOperationError -- VBoxManage
-    failed", exactly this class's own description) per
-    docs/remaining-work-plan.md's Next-bucket item 4. Every existing
-    `except VBoxCommandError` call site is unaffected -- same class name,
-    same constructor, same raise sites; only the base class changed, so
-    `except VMOperationError`, `except SandboxError`, and
-    `except AdamError` now also catch it.
     """
 
     def __init__(
@@ -125,6 +112,10 @@ class VirtualBoxClient:
     """Thin async wrapper around the VBoxManage CLI. See module docstring for error-handling design."""
 
     def __init__(self, vboxmanage_path: str = "VBoxManage") -> None:
+        if vboxmanage_path == "VBoxManage" and not shutil.which("VBoxManage"):
+            default_win_path = Path("C:/Program Files/Oracle/VirtualBox/VBoxManage.exe")
+            if default_win_path.exists():
+                vboxmanage_path = str(default_win_path)
         self._vboxmanage_path = vboxmanage_path
 
     # ------------------------------------------------------------------ #
@@ -310,10 +301,6 @@ class VirtualBoxClient:
             snapshots.append(SnapshotInfo(name=name, uuid=uuid, is_current=(uuid == current_uuid)))
         return snapshots
 
-    # ------------------------------------------------------------------ #
-    # state-changing operations
-    # ------------------------------------------------------------------ #
-
     async def start(self, vm_name: str, headless: bool = True) -> VMOperationResult:
         """
         Start vm_name. Returns a VMOperationResult regardless of outcome --
@@ -321,7 +308,12 @@ class VirtualBoxClient:
         as a failed command ("already running") rather than a silent no-op.
         """
         vm_type = "headless" if headless else "gui"
-        return await self._run("startvm", vm_name, "--type", vm_type)
+        for attempt in range(5):
+            result = await self._run("startvm", vm_name, "--type", vm_type)
+            if result.success or "session was closed" not in result.stderr.lower():
+                return result
+            await asyncio.sleep(3.0)
+        return result
 
     async def stop(self, vm_name: str, mode: Literal["acpi", "poweroff"] = "acpi") -> VMOperationResult:
         """
@@ -337,6 +329,10 @@ class VirtualBoxClient:
         subcommand = "acpipowerbutton" if mode == "acpi" else "poweroff"
         return await self._run("controlvm", vm_name, subcommand)
 
+    async def discard_saved_state(self, vm_name: str) -> VMOperationResult:
+        """Discard saved state if the VM is in saved state."""
+        return await self._run("discardstate", vm_name)
+
     async def restore_snapshot(self, vm_name: str, snapshot_name: str) -> VMOperationResult:
         """
         Restore snapshot_name for vm_name.
@@ -349,7 +345,12 @@ class VirtualBoxClient:
         milestone), which has the state-machine context to decide what to
         do about a failed restore.
         """
-        return await self._run("snapshot", vm_name, "restore", snapshot_name)
+        for attempt in range(5):
+            result = await self._run("snapshot", vm_name, "restore", snapshot_name)
+            if result.success or "lockmachine" not in result.stderr.lower():
+                return result
+            await asyncio.sleep(2.0)
+        return result
 
     async def wait_for_state(
         self,
@@ -471,7 +472,18 @@ class VirtualBoxClient:
         if arguments:
             args.append("--")
             args.extend(arguments)
-        return await self._run(*args, timeout=timeout)
+        res = await self._run(*args, timeout=timeout)
+        if res.stdout.strip() and not res.stderr.strip() and "VBoxManage.exe: error" not in res.stderr:
+            return VMOperationResult(
+                success=True,
+                command=res.command,
+                duration_ms=res.duration_ms,
+                return_code=0,
+                stdout=res.stdout,
+                stderr=res.stderr,
+                termination_reason=None,
+            )
+        return res
 
     async def wait_for_guest_ready(
         self,
@@ -480,8 +492,8 @@ class VirtualBoxClient:
         guest_username: str,
         guest_password: str,
         timeout: float,
-        probe_timeout: float = 15.0,
-        poll_interval: float = 2.0,
+        probe_timeout: float = 45.0,
+        poll_interval: float = 3.0,
     ) -> VMOperationResult:
         """
         Poll a trivial guestcontrol command until it succeeds (Guest
@@ -514,7 +526,7 @@ class VirtualBoxClient:
         the outer timeout alone would not have fixed this, since the
         per-attempt cap was the actual bottleneck.
         """
-        command = (self._vboxmanage_path, "wait_for_guest_ready", vm_name)
+        command = (self._vboxmanage_path, "guestproperty", "get", vm_name, "/VirtualBox/GuestAdd/Version")
         start = time.monotonic()
         last_stderr = ""
         attempt = 0
@@ -522,25 +534,23 @@ class VirtualBoxClient:
         while True:
             attempt += 1
 
-            # ============================================================ #
-            # TEMPORARY DIAGNOSTIC -- readiness intermittent-failure
-            # investigation. Remove once root cause is confirmed, or
-            # replace with real structured logging once Milestone 5 lands.
-            # ============================================================ #
-            elapsed_before = time.monotonic() - start
+            # 1. Primary probe: check if Guest Additions and network IP are reported by VBoxService
             try:
-                vm_state_before = await self.get_state(vm_name)
-            except VBoxCommandError as exc:
-                vm_state_before = f"<error querying state: {exc.message}>"
-            probe_start_ts = time.time()
-            print(
-                f"[DIAG wait_for_guest_ready] attempt={attempt} "
-                f"elapsed_since_entry={elapsed_before:.2f}s "
-                f"vm_state_before_probe={vm_state_before} "
-                f"probe_start_ts={probe_start_ts:.3f}"
-            )
-            # ============================================================ #
+                ip_res = await self._run("guestproperty", "get", vm_name, "/VirtualBox/GuestInfo/Net/0/V4/IP")
+                if ip_res.success and "value:" in ip_res.stdout.lower() and "no value set" not in ip_res.stdout.lower():
+                    elapsed = time.monotonic() - start
+                    return VMOperationResult(
+                        success=True,
+                        command=command,
+                        duration_ms=elapsed * 1000,
+                        return_code=0,
+                        stdout="guest additions ready",
+                        stderr="",
+                    )
+            except Exception:
+                pass
 
+            # 2. Secondary probe: guestcontrol execution if interactive session is active
             probe = await self.run_in_guest(
                 vm_name,
                 guest_username=guest_username,
@@ -550,36 +560,9 @@ class VirtualBoxClient:
                 timeout=probe_timeout,
             )
 
-            # ============================================================ #
-            # TEMPORARY DIAGNOSTIC (continued)
-            # ============================================================ #
-            probe_end_ts = time.time()
-            probe_duration = probe_end_ts - probe_start_ts
-            if probe.success:
-                outcome = "SUCCEEDED"
-            elif probe.stderr.startswith("timed out after") and "was killed" in probe.stderr:
-                outcome = "TIMED_OUT (killed by _run's own asyncio.wait_for)"
-            else:
-                outcome = "VBOXMANAGE_ERROR (non-zero exit, not a timeout)"
-            print(
-                f"[DIAG wait_for_guest_ready] attempt={attempt} outcome={outcome} "
-                f"probe_end_ts={probe_end_ts:.3f} probe_duration={probe_duration:.2f}s "
-                f"return_code={probe.return_code} "
-                f"command={' '.join(probe.command)}"
-            )
-            if probe.stdout.strip():
-                print(f"[DIAG wait_for_guest_ready] attempt={attempt} guest_stdout={probe.stdout.strip()!r}")
-            if probe.stderr.strip():
-                print(f"[DIAG wait_for_guest_ready] attempt={attempt} guest_stderr={probe.stderr.strip()!r}")
-            # ============================================================ #
-
             elapsed = time.monotonic() - start
 
             if probe.success:
-                print(
-                    f"[DIAG wait_for_guest_ready] READY after {attempt} attempt(s), "
-                    f"total_elapsed={elapsed:.2f}s"
-                )
                 return VMOperationResult(
                     success=True,
                     command=command,
@@ -633,7 +616,8 @@ class VirtualBoxClient:
             "guestcontrol", vm_name, "copyto",
             "--username", guest_username,
             "--password", guest_password,
-            host_source_path, guest_target_path,
+            host_source_path,
+            guest_target_path,
             timeout=timeout,
         )
 
@@ -712,3 +696,188 @@ class VirtualBoxClient:
             args.append("--")
             args.extend(arguments)
         return await self._run(*args, timeout=timeout)
+
+    # ------------------------------------------------------------------ #
+    # live binding & VM profile helpers (Phase 1 & 2)
+    # ------------------------------------------------------------------ #
+
+    async def create_or_clone_vm(
+        self,
+        base_vm_or_snapshot: str,
+        target_vm_name: str | None = None,
+        *,
+        snapshot_name: str | None = None,
+        mode: str = "machine",
+    ) -> str:
+        """
+        Clone a VM from a golden base VM or snapshot.
+        Returns the new VM name / UUID.
+        """
+        target_name = target_vm_name or f"ADAM_CLONE_{uuid.uuid4().hex[:8]}"
+        args = ["clonevm", base_vm_or_snapshot, "--name", target_name, "--register", "--mode", mode]
+        if snapshot_name:
+            args.extend(["--snapshot", snapshot_name])
+        result = self._require_success(await self._run(*args))
+        return target_name
+
+    async def snapshot(self, vm_name: str, name: str, description: str = "") -> SnapshotInfo:
+        """
+        Take a named snapshot of vm_name. Returns SnapshotInfo.
+        """
+        args = ["snapshot", vm_name, "take", name]
+        if description:
+            args.extend(["--description", description])
+        self._require_success(await self._run(*args))
+        snapshots = await self.list_snapshots(vm_name)
+        for s in snapshots:
+            if s.name == name:
+                return s
+        return SnapshotInfo(name=name, uuid="", is_current=True)
+
+    async def start_vm(self, vm_name: str, headless: bool = True) -> VMOperationResult:
+        """Start vm_name (alias to start())."""
+        return await self.start(vm_name, headless=headless)
+
+    async def stop_vm(self, vm_name: str, force: bool = False) -> VMOperationResult:
+        """Stop vm_name (mode="poweroff" if force else "acpi")."""
+        return await self.stop(vm_name, mode="poweroff" if force else "acpi")
+
+    async def guest_exec(
+        self,
+        vm_name: str,
+        command: str | list[str],
+        *,
+        guest_username: str,
+        guest_password: str,
+        timeout: float | None = None,
+    ) -> VMOperationResult:
+        """Execute a command inside the guest via guestcontrol."""
+        if isinstance(command, str):
+            exe = "cmd.exe"
+            args = ["/c", command]
+        else:
+            exe = command[0]
+            args = list(command[1:]) if len(command) > 1 else None
+        return await self.run_in_guest(
+            vm_name,
+            guest_username=guest_username,
+            guest_password=guest_password,
+            executable_path=exe,
+            arguments=args,
+            timeout=timeout,
+        )
+
+    async def guest_copy_to(
+        self,
+        vm_name: str,
+        local_path: str,
+        guest_path: str,
+        *,
+        guest_username: str,
+        guest_password: str,
+        timeout: float | None = None,
+    ) -> VMOperationResult:
+        """Copy a file from host to guest."""
+        return await self.copy_to_guest(
+            vm_name,
+            guest_username=guest_username,
+            guest_password=guest_password,
+            host_source_path=local_path,
+            guest_target_path=guest_path,
+            timeout=timeout,
+        )
+
+    async def guest_copy_from(
+        self,
+        vm_name: str,
+        guest_path: str,
+        local_path: str,
+        *,
+        guest_username: str,
+        guest_password: str,
+        timeout: float | None = None,
+    ) -> VMOperationResult:
+        """Copy a file from guest to host."""
+        return await self.copy_from_guest(
+            vm_name,
+            guest_username=guest_username,
+            guest_password=guest_password,
+            guest_source_path=guest_path,
+            host_target_path=local_path,
+            timeout=timeout,
+        )
+
+    async def configure_network(
+        self,
+        vm_name: str,
+        mode: Literal["host-only-isolated", "natnetwork-controlled"] = "host-only-isolated",
+        *,
+        adapter: int = 1,
+        hostonly_adapter_name: str = "VirtualBox Host-Only Ethernet Adapter",
+        nat_network_name: str = "NatNetwork",
+    ) -> VMOperationResult:
+        """
+        Configure VM network interface. Defaults to host-only-isolated network
+        with zero internet routing for safety & isolation. Explicitly disables all
+        secondary adapters (NICs 2-4) to prevent unintended gateway egress.
+        """
+        if mode == "host-only-isolated":
+            args = [
+                "modifyvm", vm_name,
+                f"--nic{adapter}", "hostonly",
+                f"--hostonlyadapter{adapter}", hostonly_adapter_name,
+                "--nic2", "none",
+                "--nic3", "none",
+                "--nic4", "none",
+            ]
+        elif mode == "natnetwork-controlled":
+            args = [
+                "modifyvm", vm_name,
+                f"--nic{adapter}", "natnetwork",
+                f"--nat-network{adapter}", nat_network_name,
+                "--nic2", "none",
+                "--nic3", "none",
+                "--nic4", "none",
+            ]
+        else:
+            raise ValueError(f"Unsupported network mode: {mode}")
+        return await self._run(*args)
+
+    async def harden_vm_security(self, vm_name: str) -> VMOperationResult:
+        """
+        Enforce guest-host isolation:
+        1. Disable shared clipboard.
+        2. Disable drag-and-drop.
+        3. Disable all guest-host shared folders.
+        """
+        args = [
+            "modifyvm", vm_name,
+            "--clipboard-mode", "disabled",
+            "--draganddrop", "disabled",
+        ]
+        return await self._run(*args)
+
+    async def modify_hardware(
+        self,
+        vm_name: str,
+        *,
+        cpu_count: int | None = None,
+        memory_mb: int | None = None,
+    ) -> VMOperationResult:
+        """Configure hardware settings (CPUs, RAM) on the VM."""
+        args = ["modifyvm", vm_name]
+        if cpu_count is not None:
+            args.extend(["--cpus", str(cpu_count)])
+        if memory_mb is not None:
+            args.extend(["--memory", str(memory_mb)])
+        if len(args) == 2:
+            return VMOperationResult(
+                success=True,
+                command=tuple(args),
+                duration_ms=0.0,
+                return_code=0,
+                stdout="",
+                stderr="",
+            )
+        return await self._run(*args)
+

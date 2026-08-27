@@ -23,6 +23,7 @@ function Get-AgentConfig {
 
     $defaults = @{
         ListenPrefix   = 'http://+:8765/'
+        AuthToken      = ''
         ProcmonPath    = 'C:\Users\Admin\Downloads\ProcessMonitor\Procmon64.exe'
         TsharkPath     = 'C:\Program Files\Wireshark\tshark.exe'
         SysmonLog      = 'Microsoft-Windows-Sysmon/Operational'

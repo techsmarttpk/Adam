@@ -1,0 +1,474 @@
+[
+  {
+    "semantic_id": "sem_demo_001",
+    "session_id": "sess_demo_001",
+    "correlation_id": "corr_demo_001",
+    "intent": "RECON_DOMAIN_CONTROLLER",
+    "confidence": 0.88,
+    "severity": "MEDIUM",
+    "window_start": "2026-07-29T20:00:00.000000Z",
+    "window_end": "2026-07-29T20:00:02.000000Z",
+    "actor": {
+      "pid": 3140,
+      "image": "C:\\Users\\Public\\demo_agent.exe",
+      "guid": "{d0000001-0000-0000-0000-000000000001}"
+    },
+    "evidence": [
+      "raw_demo_dc_001",
+      "raw_demo_dc_002"
+    ],
+    "attck": {
+      "tactic": "TA0007",
+      "technique": "T1018"
+    },
+    "detector": "DomainControllerDetector@1.0",
+    "features": {
+      "ldap_attempts": 3,
+      "all_failed": true,
+      "distinct_registry_keys": 4
+    },
+    "caused_by_mutation": null
+  },
+  {
+    "semantic_id": "sem_demo_002",
+    "session_id": "sess_demo_001",
+    "correlation_id": "corr_demo_002",
+    "intent": "RECON_DOMAIN_CONTROLLER",
+    "confidence": 0.88,
+    "severity": "MEDIUM",
+    "window_start": "2026-07-29T20:00:05.000000Z",
+    "window_end": "2026-07-29T20:00:07.000000Z",
+    "actor": {
+      "pid": 3140,
+      "image": "C:\\Users\\Public\\demo_agent.exe",
+      "guid": "{d0000001-0000-0000-0000-000000000001}"
+    },
+    "evidence": [
+      "raw_demo_dc_003"
+    ],
+    "attck": {
+      "tactic": "TA0007",
+      "technique": "T1018"
+    },
+    "detector": "DomainControllerDetector@1.0",
+    "features": {
+      "ldap_attempts": 3,
+      "all_failed": true,
+      "distinct_registry_keys": 4
+    },
+    "caused_by_mutation": null
+  },
+  {
+    "semantic_id": "sem_demo_003",
+    "session_id": "sess_demo_001",
+    "correlation_id": "corr_demo_003",
+    "intent": "CRED_BROWSER_STORE",
+    "confidence": 0.85,
+    "severity": "HIGH",
+    "window_start": "2026-07-29T20:01:00.000000Z",
+    "window_end": "2026-07-29T20:01:01.500000Z",
+    "actor": {
+      "pid": 3140,
+      "image": "C:\\Users\\Public\\demo_agent.exe",
+      "guid": "{d0000001-0000-0000-0000-000000000001}"
+    },
+    "evidence": [
+      "raw_demo_cred_001"
+    ],
+    "attck": {
+      "tactic": "TA0006",
+      "technique": "T1555.003"
+    },
+    "detector": "BrowserCredDetector@1.0",
+    "features": {
+      "target_browser": "chrome",
+      "accessed_sqlite_db": true
+    },
+    "caused_by_mutation": null
+  },
+  {
+    "semantic_id": "sem_demo_004",
+    "session_id": "sess_demo_001",
+    "correlation_id": "corr_demo_004",
+    "intent": "CRED_BROWSER_STORE",
+    "confidence": 0.85,
+    "severity": "HIGH",
+    "window_start": "2026-07-29T20:01:05.000000Z",
+    "window_end": "2026-07-29T20:01:06.500000Z",
+    "actor": {
+      "pid": 3140,
+      "image": "C:\\Users\\Public\\demo_agent.exe",
+      "guid": "{d0000001-0000-0000-0000-000000000001}"
+    },
+    "evidence": [
+      "raw_demo_cred_002"
+    ],
+    "attck": {
+      "tactic": "TA0006",
+      "technique": "T1555.003"
+    },
+    "detector": "BrowserCredDetector@1.0",
+    "features": {
+      "target_browser": "chrome",
+      "accessed_sqlite_db": true
+    },
+    "caused_by_mutation": null
+  },
+  {
+    "semantic_id": "sem_demo_005",
+    "session_id": "sess_demo_001",
+    "correlation_id": "corr_demo_005",
+    "intent": "RECON_VIRTUALISATION",
+    "confidence": 0.80,
+    "severity": "LOW",
+    "window_start": "2026-07-29T20:02:00.000000Z",
+    "window_end": "2026-07-29T20:02:01.000000Z",
+    "actor": {
+      "pid": 3140,
+      "image": "C:\\Users\\Public\\demo_agent.exe",
+      "guid": "{d0000001-0000-0000-0000-000000000001}"
+    },
+    "evidence": [
+      "raw_demo_vm_001"
+    ],
+    "attck": {
+      "tactic": "TA0007",
+      "technique": "T1497.001"
+    },
+    "detector": "VirtualisationDetector@1.0",
+    "features": {
+      "cpuid_hypervisor_bit": true,
+      "mac_vendor_check": "VBOX"
+    },
+    "caused_by_mutation": null
+  },
+  {
+    "semantic_id": "sem_demo_006",
+    "session_id": "sess_demo_001",
+    "correlation_id": "corr_demo_006",
+    "intent": "RECON_NETWORK_SHARES",
+    "confidence": 0.78,
+    "severity": "MEDIUM",
+    "window_start": "2026-07-29T20:03:00.000000Z",
+    "window_end": "2026-07-29T20:03:02.000000Z",
+    "actor": {
+      "pid": 3140,
+      "image": "C:\\Users\\Public\\demo_agent.exe",
+      "guid": "{d0000001-0000-0000-0000-000000000001}"
+    },
+    "evidence": [
+      "raw_demo_share_001"
+    ],
+    "attck": {
+      "tactic": "TA0007",
+      "technique": "T1135"
+    },
+    "detector": "NetworkShareDetector@1.0",
+    "features": {
+      "net_share_enum_calls": 5
+    },
+    "caused_by_mutation": null
+  },
+  {
+    "semantic_id": "sem_demo_007",
+    "session_id": "sess_demo_002",
+    "correlation_id": "corr_demo_007",
+    "intent": "RECON_DOMAIN_CONTROLLER",
+    "confidence": 0.55,
+    "severity": "LOW",
+    "window_start": "2026-07-29T20:10:00.000000Z",
+    "window_end": "2026-07-29T20:10:01.000000Z",
+    "actor": {
+      "pid": 4520,
+      "image": "C:\\Program Files\\Utility\\helper.exe",
+      "guid": "{d0000002-0000-0000-0000-000000000002}"
+    },
+    "evidence": [
+      "raw_demo_low_001"
+    ],
+    "attck": {
+      "tactic": "TA0007",
+      "technique": "T1018"
+    },
+    "detector": "DomainControllerDetector@1.0",
+    "features": {
+      "ldap_attempts": 1
+    },
+    "caused_by_mutation": null
+  },
+  {
+    "semantic_id": "sem_demo_008",
+    "session_id": "sess_demo_002",
+    "correlation_id": "corr_demo_008",
+    "intent": "EVADE_SANDBOX_DETECTED",
+    "confidence": 0.45,
+    "severity": "LOW",
+    "window_start": "2026-07-29T20:10:30.000000Z",
+    "window_end": "2026-07-29T20:10:31.000000Z",
+    "actor": {
+      "pid": 4520,
+      "image": "C:\\Program Files\\Utility\\helper.exe",
+      "guid": "{d0000002-0000-0000-0000-000000000002}"
+    },
+    "evidence": [
+      "raw_demo_low_002"
+    ],
+    "attck": {
+      "tactic": "TA0005",
+      "technique": "T1497.001"
+    },
+    "detector": "SandboxEvasionDetector@1.0",
+    "features": {
+      "mouse_movement_delta": 0
+    },
+    "caused_by_mutation": null
+  },
+  {
+    "semantic_id": "sem_demo_009",
+    "session_id": "sess_demo_002",
+    "correlation_id": "corr_demo_009",
+    "intent": "RECON_INSTALLED_AV",
+    "confidence": 0.85,
+    "severity": "MEDIUM",
+    "window_start": "2026-07-29T20:11:00.000000Z",
+    "window_end": "2026-07-29T20:11:01.000000Z",
+    "actor": {
+      "pid": 4520,
+      "image": "C:\\Program Files\\Utility\\helper.exe",
+      "guid": "{d0000002-0000-0000-0000-000000000002}"
+    },
+    "evidence": [
+      "raw_demo_av_001"
+    ],
+    "attck": {
+      "tactic": "TA0007",
+      "technique": "T1518.001"
+    },
+    "detector": "AVPresenceDetector@1.0",
+    "features": {
+      "wmi_query_sec_center": 1
+    },
+    "caused_by_mutation": null
+  },
+  {
+    "semantic_id": "sem_demo_010",
+    "session_id": "sess_demo_002",
+    "correlation_id": "corr_demo_010",
+    "intent": "CRED_WALLET_SEARCH",
+    "confidence": 0.82,
+    "severity": "HIGH",
+    "window_start": "2026-07-29T20:11:30.000000Z",
+    "window_end": "2026-07-29T20:11:31.000000Z",
+    "actor": {
+      "pid": 4520,
+      "image": "C:\\Program Files\\Utility\\helper.exe",
+      "guid": "{d0000002-0000-0000-0000-000000000002}"
+    },
+    "evidence": [
+      "raw_demo_wallet_001"
+    ],
+    "attck": {
+      "tactic": "TA0006",
+      "technique": "T1005"
+    },
+    "detector": "WalletSearchDetector@1.0",
+    "features": {
+      "file_extension_matched": ".wallet"
+    },
+    "caused_by_mutation": null
+  },
+  {
+    "semantic_id": "sem_demo_011",
+    "session_id": "sess_demo_002",
+    "correlation_id": "corr_demo_011",
+    "intent": "RECON_USER_ARTIFACTS",
+    "confidence": 0.72,
+    "severity": "MEDIUM",
+    "window_start": "2026-07-29T20:12:00.000000Z",
+    "window_end": "2026-07-29T20:12:02.000000Z",
+    "actor": {
+      "pid": 4520,
+      "image": "C:\\Program Files\\Utility\\helper.exe",
+      "guid": "{d0000002-0000-0000-0000-000000000002}"
+    },
+    "evidence": [
+      "raw_demo_userart_001"
+    ],
+    "attck": {
+      "tactic": "TA0007",
+      "technique": "T1083"
+    },
+    "detector": "UserArtifactsDetector@1.0",
+    "features": {
+      "desktop_files_scanned": 15
+    },
+    "caused_by_mutation": null
+  },
+  {
+    "semantic_id": "sem_demo_012",
+    "session_id": "sess_demo_002",
+    "correlation_id": "corr_demo_012",
+    "intent": "RECON_SYSTEM_UPTIME",
+    "confidence": 0.70,
+    "severity": "LOW",
+    "window_start": "2026-07-29T20:12:30.000000Z",
+    "window_end": "2026-07-29T20:12:31.000000Z",
+    "actor": {
+      "pid": 4520,
+      "image": "C:\\Program Files\\Utility\\helper.exe",
+      "guid": "{d0000002-0000-0000-0000-000000000002}"
+    },
+    "evidence": [
+      "raw_demo_uptime_001"
+    ],
+    "attck": {
+      "tactic": "TA0007",
+      "technique": "T1124"
+    },
+    "detector": "SystemUptimeDetector@1.0",
+    "features": {
+      "gettickcount_calls": 12
+    },
+    "caused_by_mutation": null
+  },
+  {
+    "semantic_id": "sem_demo_013",
+    "session_id": "sess_demo_003",
+    "correlation_id": "corr_demo_013",
+    "intent": "RECON_DEBUGGER",
+    "confidence": 0.75,
+    "severity": "MEDIUM",
+    "window_start": "2026-07-29T20:20:00.000000Z",
+    "window_end": "2026-07-29T20:20:01.000000Z",
+    "actor": {
+      "pid": 5892,
+      "image": "C:\\Temp\\loader.exe",
+      "guid": "{d0000003-0000-0000-0000-000000000003}"
+    },
+    "evidence": [
+      "raw_demo_debug_001"
+    ],
+    "attck": {
+      "tactic": "TA0007",
+      "technique": "T1622"
+    },
+    "detector": "DebuggerDetector@1.0",
+    "features": {
+      "isdebuggerpresent_call": true
+    },
+    "caused_by_mutation": null
+  },
+  {
+    "semantic_id": "sem_demo_014",
+    "session_id": "sess_demo_003",
+    "correlation_id": "corr_demo_014",
+    "intent": "PERSIST_RUN_KEY",
+    "confidence": 0.85,
+    "severity": "HIGH",
+    "window_start": "2026-07-29T20:21:00.000000Z",
+    "window_end": "2026-07-29T20:21:02.000000Z",
+    "actor": {
+      "pid": 5892,
+      "image": "C:\\Temp\\loader.exe",
+      "guid": "{d0000003-0000-0000-0000-000000000003}"
+    },
+    "evidence": [
+      "raw_demo_persist_001"
+    ],
+    "attck": {
+      "tactic": "TA0003",
+      "technique": "T1547.001"
+    },
+    "detector": "RunKeyPersistenceDetector@1.0",
+    "features": {
+      "distinct_registry_keys": 6,
+      "target_key": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run"
+    },
+    "caused_by_mutation": null
+  },
+  {
+    "semantic_id": "sem_demo_015",
+    "session_id": "sess_demo_003",
+    "correlation_id": "corr_demo_015",
+    "intent": "EVADE_SANDBOX_DETECTED",
+    "confidence": 0.90,
+    "severity": "HIGH",
+    "window_start": "2026-07-29T20:22:00.000000Z",
+    "window_end": "2026-07-29T20:22:01.000000Z",
+    "actor": {
+      "pid": 5892,
+      "image": "C:\\Temp\\loader.exe",
+      "guid": "{d0000003-0000-0000-0000-000000000003}"
+    },
+    "evidence": [
+      "raw_demo_sandbox_001"
+    ],
+    "attck": {
+      "tactic": "TA0005",
+      "technique": "T1497.001"
+    },
+    "detector": "SandboxEvasionDetector@1.0",
+    "features": {
+      "mouse_movement_delta": 0,
+      "sandbox_artifact_found": "SbieDll.dll"
+    },
+    "caused_by_mutation": null
+  },
+  {
+    "semantic_id": "sem_demo_016",
+    "session_id": "sess_demo_003",
+    "correlation_id": "corr_demo_016",
+    "intent": "EVADE_SLEEP_SKIP",
+    "confidence": 0.82,
+    "severity": "HIGH",
+    "window_start": "2026-07-29T20:23:00.000000Z",
+    "window_end": "2026-07-29T20:23:02.000000Z",
+    "actor": {
+      "pid": 5892,
+      "image": "C:\\Temp\\loader.exe",
+      "guid": "{d0000003-0000-0000-0000-000000000003}"
+    },
+    "evidence": [
+      "raw_demo_sleep_001"
+    ],
+    "attck": {
+      "tactic": "TA0005",
+      "technique": "T1497.003"
+    },
+    "detector": "SleepSkipDetector@1.0",
+    "features": {
+      "sleep_duration_ms": 300000,
+      "actual_elapsed_ms": 12
+    },
+    "caused_by_mutation": null
+  },
+  {
+    "semantic_id": "sem_demo_017",
+    "session_id": "sess_demo_003",
+    "correlation_id": "corr_demo_017",
+    "intent": "C2_BEACON",
+    "confidence": 0.89,
+    "severity": "CRITICAL",
+    "window_start": "2026-07-29T20:24:00.000000Z",
+    "window_end": "2026-07-29T20:24:03.000000Z",
+    "actor": {
+      "pid": 5892,
+      "image": "C:\\Temp\\loader.exe",
+      "guid": "{d0000003-0000-0000-0000-000000000003}"
+    },
+    "evidence": [
+      "raw_demo_c2_001"
+    ],
+    "attck": {
+      "tactic": "TA0011",
+      "technique": "T1071.001"
+    },
+    "detector": "C2BeaconDetector@1.0",
+    "features": {
+      "dest_ip": "192.0.2.45",
+      "beacon_interval_sec": 60,
+      "jitter": 0.1
+    },
+    "caused_by_mutation": null
+  }
+]

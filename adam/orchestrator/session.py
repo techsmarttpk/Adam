@@ -110,7 +110,7 @@ from adam.common.config import Settings
 from adam.contracts.enums import Arm, NetworkMode, SessionStatus
 from adam.contracts.envelope import Envelope
 from adam.contracts.raw_event import RawEvent
-from adam.contracts.session import AnalysisSession, SampleRef, SessionConfig, SessionMetrics
+from adam.contracts.session import AnalysisSession, SampleRef, SessionConfig, SessionLifecycle, SessionMetrics
 from adam.orchestrator.persistence import RawEventWriter
 from adam.sandbox.controller import SandboxController
 from adam.sandbox.guest.channel import GuestChannel, TelemetryArtifacts
@@ -326,12 +326,14 @@ class SessionOrchestrator:
         started_at = datetime.now(timezone.utc)
         guest_target_path = self._guest_target_path_for(sample)
 
+        deception_enabled = getattr(config.deception, "enable_clock_manipulation", True) if hasattr(config, "deception") else False
+        arm = Arm.TREATMENT if deception_enabled else Arm.CONTROL
         session_config = SessionConfig(
-            deception_enabled=False,  # Deception Engine (section 5.6, Dev C) does not exist yet
-            policy_ruleset="none",  # Policy Engine (section 5.5, Dev C) does not exist yet
-            vm_profile=config.sandbox.vm_name,  # VMProfile/profiles.py does not exist yet -- vm_name stands in, disclosed
+            deception_enabled=deception_enabled,
+            policy_ruleset="default" if deception_enabled else "none",
+            vm_profile=getattr(self._controller, "vm_profile", config.sandbox.vm_name),
             timeout_seconds=sample_timeout_seconds,
-            network_mode=NetworkMode.HOST_ONLY,  # not yet a real SandboxSettings field -- safest disclosed default
+            network_mode=NetworkMode.HOST_ONLY,
         )
 
         artifact_path = self._artifacts_dir / session_id / "raw.jsonl"

@@ -152,12 +152,37 @@ def run(
             "adam/sandbox/guest/agent/agent.py's module docstring, DIAGNOSTICS section."
         ),
     ),
+    gui: bool = typer.Option(
+        False,
+        "--gui",
+        help="Start the VirtualBox VM with a visible GUI window. Default is headless.",
+    ),
+    profile: Optional[str] = typer.Option(
+        None,
+        "--profile",
+        "-p",
+        help="Hardware profile ID to apply to the sandbox (e.g. bare_control, developer_decoy, enterprise_office_decoy).",
+    ),
 ) -> None:
     """Run one full, unattended analysis session against SAMPLE_PATH."""
     if verbose:
         logging.basicConfig(level=logging.DEBUG, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     else:
         logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+        # Silence third-party libraries that spam DEBUG regardless of root level.
+        # Evtx.Evtx emits one DEBUG line per EVTX record (~1000 lines/session).
+        # httpcore/httpx emit per-request/connection DEBUG lines.
+        # These are only useful when debugging transport or parser issues;
+        # --verbose restores them via the root DEBUG level set above.
+        logging.getLogger("Evtx").setLevel(logging.WARNING)
+        logging.getLogger("httpcore").setLevel(logging.WARNING)
+        logging.getLogger("httpx").setLevel(logging.WARNING)
+        # [VERIFY] markers in wiring.py are temporary instrumentation that
+        # emit one INFO line per raw/semantic/policy event (~1208 lines/session).
+        # Promote to DEBUG so they're hidden at the default INFO level;
+        # --verbose shows them. Remove this override once the live-run audit
+        # is complete and the [VERIFY] markers are deleted from wiring.py.
+        logging.getLogger("adam.pipeline.wiring").setLevel(logging.WARNING)
 
     if not Path(sample_path).is_file():
         console.print(f"[red]error:[/red] sample not found: {sample_path}")
@@ -168,10 +193,12 @@ def run(
     try:
         coro = runner.run(
             sample_path,
+            vm_profile=profile,
             sysmon_evtx_path=sysmon_evtx_path,
             procmon_csv_path=procmon_csv_path,
             network_ek_json_path=network_ek_json_path,
             artifacts_dir=artifacts_dir,
+            headless=not gui,
         )
         session = _run_with_graceful_cancellation(coro)
     except ValidationError as exc:

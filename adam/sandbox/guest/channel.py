@@ -55,7 +55,7 @@ from typing import Protocol, runtime_checkable
 
 from adam.sandbox.guest.agent.agent import TelemetryArtifacts, ToolAvailability
 
-__all__ = ["GuestChannel", "ToolAvailability", "TelemetryArtifacts"]
+__all__ = ["GuestChannel", "ToolAvailability", "TelemetryArtifacts", "InMemoryGuestChannel"]
 
 
 @runtime_checkable
@@ -118,3 +118,57 @@ class GuestChannel(Protocol):
         raise and not affect the other two.
         """
         ...
+
+
+class InMemoryGuestChannel:
+    """
+    In-memory guest channel for simulations, offline replays, API test execution,
+    and testing where no real VM or HTTP agent is connected. Satisfies both
+    GuestChannel and GuestMutationChannel protocols.
+    """
+
+    def __init__(self) -> None:
+        self.applied_mutations: list[tuple[str, str, str, str | None]] = []
+        self.applied_batches: list[list[tuple[str, str | None]]] = []
+
+    async def apply_mutation(self, kind: str, target: str, operation: str, value: str | None) -> None:
+        self.applied_mutations.append((kind, target, operation, value))
+
+    async def apply_mutation_batch(
+        self, file_creates: list[tuple[str, str | None]], timeout_s: float = 30.0
+    ) -> None:
+        self.applied_batches.append(file_creates)
+        for target, value in file_creates:
+            self.applied_mutations.append(("FILE", target, "CREATE", value))
+
+    async def verify_tools(self) -> ToolAvailability:
+        return ToolAvailability(
+            procmon_available=True,
+            tshark_available=True,
+            sysmon_available=True,
+        )
+
+    async def start_captures(
+        self,
+        session_id: str,
+        *,
+        capture_procmon: bool = True,
+        capture_network: bool = True,
+    ) -> None:
+        pass
+
+    async def stop_export_and_fetch(
+        self,
+        session_id: str,
+        host_artifact_dir: str | Path,
+        *,
+        export_sysmon: bool = True,
+        export_procmon: bool = True,
+        export_network: bool = True,
+    ) -> TelemetryArtifacts:
+        return TelemetryArtifacts(
+            sysmon_evtx_path=None,
+            procmon_csv_path=None,
+            network_ek_json_path=None,
+        )
+

@@ -105,15 +105,17 @@ async def test_single_session_report(generator, repos):
     
     assert report["session_id"] == "sess1"
     assert report["experiment_id"] == "exp1"
-    assert "TA0001/T1001" in report["attck_coverage"]
+    assert "TA0001 / T1001" in report["attck_coverage"]
+
     
     # Detection risk should contain mut1
     assert len(report["detection_risk"]) == 1
     assert report["detection_risk"][0]["mutation_id"] == "mut1"
-    
-    # IOCs should be extracted
-    assert len(report["iocs"]) == 1
-    assert report["iocs"][0]["target"] == "HKLM/Run"
+    # IOCs should be extracted (both mutation and semantic event)
+    assert len(report["iocs"]) == 2
+    assert any(i["target"] == "HKLM/Run" for i in report["iocs"])
+    assert any(i["source"] == "semantic_event" for i in report["iocs"])
+
     
 @pytest.mark.asyncio
 async def test_yield_comparison_math(generator, repos):

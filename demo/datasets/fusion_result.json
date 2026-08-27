@@ -1,0 +1,145 @@
+{
+    "timestamp": "2026-08-07 12:29:17.679058",
+    "processed_events": 600,
+    "normalized_events": 600,
+    "correlated_groups": 1,
+    "detections": [
+        {
+            "timestamp": "2026-07-24 04:18:42.154215+00:00",
+            "category": "Privilege Escalation",
+            "technique_id": "T1068",
+            "severity": "HIGH",
+            "confidence": 0.92,
+            "description": "Potential privilege escalation behaviour detected.",
+            "evidence": [
+                {
+                    "timestamp": "2026-07-24 04:18:42.154215+00:00",
+                    "source": "sysmon",
+                    "event_type": "REGISTRY",
+                    "process_id": 4028,
+                    "parent_process_id": 0,
+                    "process_name": "compattelrunner.exe",
+                    "command_line": null,
+                    "payload": {
+                        "command_line": "",
+                        "RuleName": "InvDB-DriverVer",
+                        "EventType": "SetValue",
+                        "UtcTime": "2026-07-24 04:18:42.148",
+                        "TargetObject": "\\REGISTRY\\A\\{5850920c-579b-c783-97ef-c24f40493858}\\Root\\InventoryDriverBinary\\c:/windows/system32/drivers/winnat.sys\\DriverVersion",
+                        "Details": "10.0.19041.3636",
+                        "host": null,
+                        "user": null,
+                        "session_id": "sess_2026_08_07_1455d78f",
+                        "event_id": "raw_15b11e429c684d57b2160f8d0241e70f"
+                    }
+                },
+                {
+                    "timestamp": "2026-07-24 04:18:46.255646+00:00",
+                    "source": "sysmon",
+                    "event_type": "REGISTRY",
+                    "process_id": 4028,
+                    "parent_process_id": 0,
+                    "process_name": "compattelrunner.exe",
+                    "command_line": null,
+                    "payload": {
+                        "command_line": "",
+                        "RuleName": "InvDB-DriverVer",
+                        "EventType": "SetValue",
+                        "UtcTime": "2026-07-24 04:18:46.231",
+                        "TargetObject": "\\REGISTRY\\A\\{5850920c-579b-c783-97ef-c24f40493858}\\Root\\InventoryDriverBinary\\c:/windows/system32/drivers/winusb.sys\\DriverVersion",
+                        "Details": "10.0.19041.1",
+                        "host": null,
+                        "user": null,
+                        "session_id": "sess_2026_08_07_1455d78f",
+                        "event_id": "raw_31a49ddc9df54b1fa35f85fe10082d7c"
+                    }
+                },
+                {
+                    "timestamp": "2026-07-24 04:18:47.521126+00:00",
+                    "source": "sysmon",
+                    "event_type": "REGISTRY",
+                    "process_id": 4028,
+                    "parent_process_id": 0,
+                    "process_name": "compattelrunner.exe",
+                    "command_line": null,
+                    "payload": {
+                        "command_line": "",
+                        "RuleName": "InvDB-DriverVer",
+                        "EventType": "SetValue",
+                        "UtcTime": "2026-07-24 04:18:47.496",
+                        "TargetObject": "\\REGISTRY\\A\\{5850920c-579b-c783-97ef-c24f40493858}\\Root\\InventoryDriverBinary\\c:/windows/system32/drivers/winverbs.sys\\DriverVersion",
+                        "Details": "5.50.14695.0",
+                        "host": null,
+                        "user": null,
+                        "session_id": "sess_2026_08_07_1455d78f",
+                        "event_id": "raw_38cf5b5287c3444c81f80b21165b9c72"
+                    }
+                },
+                {
+                    "timestamp": "2026-07-24 04:18:47.927635+00:00",
+                    "source": "sysmon",
+                    "event_type": "REGISTRY",
+                    "process_id": 4028,
+                    "parent_process_id": 0,
+                    "process_name": "compattelrunner.exe",
+                    "command_line": null,
+                    "payload": {
+                        "command_line": "",
+                        "RuleName": "InvDB-DriverVer",
+                        "EventType": "SetValue",
+                        "UtcTime": "2026-07-24 04:18:47.912",
+                        "TargetObject": "\\REGISTRY\\A\\{5850920c-579b-c783-97ef-c24f40493858}\\Root\\InventoryDriverBinary\\c:/windows/system32/drivers/wmiacpi.sys\\DriverVersion",
+                        "Details": "10.0.19041.1",
+                        "host": null,
+                        "user": null,
+                        "session_id": "sess_2026_08_07_1455d78f",
+                        "event_id": "raw_f192c4092b694db2b9ae1c7cb5cffcdc"
+                    }
+                },
+                {
+                    "timestamp": "2026-07-24 04:18:49.553560+00:00",
+                    "source": "sysmon",
+                    "event_type": "REGISTRY",
+                    "process_id": 4028,
+                    "parent_process_id": 0,
+                    "process_name": "compattelrunner.exe",
+                    "command_line": null,
+                    "payload": {
+                        "command_line": "",
+                        "RuleName": "InvDB-DriverVer",
+                        "EventType": "SetValue",
+                        "UtcTime": "2026-07-24 04:18:49.544",
+                        "TargetObject": "\\REGISTRY\\A\\{5850920c-579b-c783-97ef-c24f40493858}\\Root\\InventoryDriverBinary\\c:/windows/system32/drivers/wpdupfltr.sys\\DriverVersion",
+                        "Details": "10.0.19041.1",
+                        "host": null,
+                        "user": null,
+                        "session_id": "sess_2026_08_07_1455d78f",
+                        "event_id": "raw_a521bbae489745c096cf5d06e528d31f"
+                    }
+                },
+                {
+                    "timestamp": "2026-07-24 04:18:50.601362+00:00",
+                    "source": "sysmon",
+                    "event_type": "REGISTRY",
+                    "process_id": 4028,
+                    "parent_process_id": 0,
+                    "process_name": "compattelrunner.exe",
+                    "command_line": null,
+                    "payload": {
+                        "command_line": "",
+                        "RuleName": "InvDB-DriverVer",
+                        "EventType": "SetValue",
+                        "UtcTime": "2026-07-24 04:18:50.598",
+                        "TargetObject": "\\REGISTRY\\A\\{5850920c-579b-c783-97ef-c24f40493858}\\Root\\InventoryDriverBinary\\c:/windows/system32/drivers/ws2ifsl.sys\\DriverVersion",
+                        "Details": "10.0.19041.1",
+                        "host": null,
+                        "user": null,
+                        "session_id": "sess_2026_08_07_1455d78f",
+                        "event_id": "raw_21eac4840e054646aae279ab1184701a"
+                    }
+                }
+            ]
+        }
+    ],
+    "runtime_ms": 2.9485000004569883
+}

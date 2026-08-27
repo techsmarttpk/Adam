@@ -66,11 +66,45 @@ function Invoke-SampleUpload {
 }
 
 function Invoke-SampleStage {
-    <# Moves/copies an already-uploaded sample to its final execution target path (e.g. after a rename). #>
+    <#
+    Stages a sample payload to TargetPath directly via ContentBase64 (or copies from StagedPath).
+    Writes binary to disk, verifies provided SHA256 if given, and returns computed SHA256.
+    #>
     param(
-        [Parameter(Mandatory = $true)][string]$StagedPath,
-        [Parameter(Mandatory = $true)][string]$TargetPath
+        [Parameter(Mandatory = $false)][AllowNull()][AllowEmptyString()][string]$StagedPath = $null,
+        [Parameter(Mandatory = $true)][string]$TargetPath,
+        [Parameter(Mandatory = $false)][AllowNull()][AllowEmptyString()][string]$ContentBase64 = $null,
+        [Parameter(Mandatory = $false)][AllowNull()][AllowEmptyString()][string]$Sha256 = $null
     )
+    if ($ContentBase64) {
+        try {
+            $bytes = [Convert]::FromBase64String($ContentBase64)
+        } catch {
+            return New-ErrorEnvelope -ErrorCode $Script:ErrorCodes.InvalidArgument -ErrorMessage "content_base64 is not valid base64: $($_.Exception.Message)"
+        }
+
+        $actualHash = Get-Sha256Hex -Bytes $bytes
+        if ($Sha256 -and ($actualHash.ToLower() -ne $Sha256.ToLower())) {
+            return New-ErrorEnvelope -ErrorCode $Script:ErrorCodes.InvalidArgument -ErrorMessage "sha256 mismatch: expected $Sha256, computed $actualHash"
+        }
+
+        try {
+            $targetDir = Split-Path -Path $TargetPath -Parent
+            if ($targetDir -and -not (Test-Path -LiteralPath $targetDir)) {
+                New-Item -ItemType Directory -Path $targetDir -Force | Out-Null
+            }
+            [System.IO.File]::WriteAllBytes($TargetPath, $bytes)
+            Write-AgentLog -Message "sample staged to $TargetPath ($($bytes.Length) bytes, sha256=$actualHash)"
+            return New-SuccessEnvelope -Data @{
+                target_path = $TargetPath
+                sha256      = $actualHash
+                size_bytes  = $bytes.Length
+            }
+        } catch {
+            return New-ErrorEnvelope -ErrorCode $Script:ErrorCodes.InternalError -ErrorMessage $_.Exception.Message
+        }
+    }
+
     try {
         if (-not (Test-Path -LiteralPath $StagedPath)) {
             return New-ErrorEnvelope -ErrorCode $Script:ErrorCodes.NotFound -ErrorMessage "staged sample not found: $StagedPath"
@@ -80,7 +114,13 @@ function Invoke-SampleStage {
             New-Item -ItemType Directory -Path $targetDir -Force | Out-Null
         }
         Copy-Item -LiteralPath $StagedPath -Destination $TargetPath -Force
-        return New-SuccessEnvelope -Data @{ target_path = $TargetPath }
+        $bytes = [System.IO.File]::ReadAllBytes($TargetPath)
+        $actualHash = Get-Sha256Hex -Bytes $bytes
+        return New-SuccessEnvelope -Data @{
+            target_path = $TargetPath
+            sha256      = $actualHash
+            size_bytes  = $bytes.Length
+        }
     } catch {
         return New-ErrorEnvelope -ErrorCode $Script:ErrorCodes.InternalError -ErrorMessage $_.Exception.Message
     }

@@ -239,23 +239,45 @@ async def test_apply_revert_roundtrip_all_primitives():
         primitive = cls(channel)
 
         mutation = await primitive.apply_async("sess", "corr", "dec", params)
-        assert mutation.status == MutationStatus.APPLIED
+        assert mutation.status == MutationStatus.APPLIED, f"{action}: apply failed"
         applied_calls = list(channel.apply_mutation.call_args_list)
+        batch_calls = list(channel.apply_mutation_batch.call_args_list)
 
         channel.reset_mock()
         reverted_mutation = await primitive.revert_async(mutation)
-        assert reverted_mutation.status == MutationStatus.REVERTED
+        assert reverted_mutation.status == MutationStatus.REVERTED, f"{action}: revert failed"
         revert_calls = list(channel.apply_mutation.call_args_list)
 
-        assert len(revert_calls) == len(applied_calls)
-        
-        # Verify inverse operations
-        for app_call, rev_call in zip(reversed(applied_calls), revert_calls):
-            app_kind, app_target, app_op, app_val = app_call.args
-            rev_kind, rev_target, rev_op, rev_val = rev_call.args
-            assert rev_kind == app_kind
-            assert rev_target == app_target
-            assert rev_op in inverse_ops[app_op]
+        # Primitives that used apply_mutation_batch have 0 apply_mutation calls
+        # during apply but N=len(changes) apply_mutation calls during revert.
+        # For those, revert_calls == len(mutation.changes); for all others, the
+        # original invariant (revert_calls == applied_calls) still holds.
+        used_batch = len(batch_calls) > 0
+        if used_batch:
+            # Batch-apply path: revert count must equal the number of changes.
+            assert len(revert_calls) == len(mutation.changes), (
+                f"{action}: expected {len(mutation.changes)} revert calls "
+                f"(one per change), got {len(revert_calls)}"
+            )
+            # No per-call inverse-op verification is possible for apply side
+            # (batch combines them), but we can verify all reverts are correct.
+            for rev_call in revert_calls:
+                rev_kind, rev_target, rev_op, rev_val = rev_call.args
+                assert rev_op in ("DELETE", "TERMINATE", "RESET", "UNMASK", "UNMOUNT", "UNRESPOND"), (
+                    f"{action}: unexpected revert op {rev_op!r}"
+                )
+        else:
+            # Per-call apply path: original invariant.
+            assert len(revert_calls) == len(applied_calls), (
+                f"{action}: revert_calls ({len(revert_calls)}) != applied_calls ({len(applied_calls)})"
+            )
+            # Verify inverse operations
+            for app_call, rev_call in zip(reversed(applied_calls), revert_calls):
+                app_kind, app_target, app_op, app_val = app_call.args
+                rev_kind, rev_target, rev_op, rev_val = rev_call.args
+                assert rev_kind == app_kind
+                assert rev_target == app_target
+                assert rev_op in inverse_ops[app_op]
 
 
 # 7. Plausibility Score Sanity

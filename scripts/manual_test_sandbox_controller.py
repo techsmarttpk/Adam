@@ -39,8 +39,13 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
-import shutil
 from pathlib import Path
+import shutil
+import sys
+
+_PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(_PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PROJECT_ROOT))
 
 from adam.common.config import get_settings
 from adam.contracts.session import SampleRef
@@ -50,7 +55,7 @@ from adam.sandbox.vbox.client import VirtualBoxClient
 from adam.sandbox.vbox.models import VMOperationResult
 
 # Test-script detail only, not sandbox configuration -- stays local.
-GUEST_TARGET_PATH = "C:\\Users\\Admin\\Desktop\\adam_smoke_sample.exe"
+GUEST_TARGET_PATH = "C:\\ADAM\\adam_smoke_sample.exe"
 
 
 def _banner(title: str) -> None:
@@ -72,22 +77,24 @@ def _show(result: VMOperationResult | None) -> None:
 
 def _locate_smoke_sample() -> str:
     """
-    A real, host-local, directly-runnable executable to stand in for a
-    'sample' -- detonate(sample) now runs exactly what arm() copied to the
-    guest, with no separate command/arguments (see module docstring), so
-    this can no longer be an arbitrary text file read via cmd.exe.
-
-    whoami.exe is used: it ships with every Windows install, is a real PE
-    (not a script), and terminates immediately instead of blocking on
-    stdin the way a bare cmd.exe with no arguments would.
+    A real, directly-runnable executable to stand in for a 'sample'.
+    Prioritizes a guest-compatible sample from samples/ (or tests/fixtures/)
+    to avoid OS-build coupling issues when running on a guest with a different
+    Windows version than the host.
     """
+    candidates = [
+        _PROJECT_ROOT / "samples" / "smoke_sample.exe",
+        _PROJECT_ROOT / "samples" / "guest_whoami.exe",
+        _PROJECT_ROOT / "tests" / "fixtures" / "smoke_sample.exe",
+    ]
+    for c in candidates:
+        if c.is_file():
+            return str(c)
+
     path = shutil.which("whoami.exe") or shutil.which("whoami")
     if path is None:
         raise RuntimeError(
-            "whoami.exe not found on PATH -- this manual test must be run "
-            "from a Windows host with System32 on PATH; see "
-            "scripts/manual_tests/README.md for the diagnostic toolkit if "
-            "VBoxManage itself is the problem."
+            "whoami.exe not found on PATH and no sample in samples/."
         )
     return path
 
@@ -104,9 +111,25 @@ def _sample_ref(host_path: str) -> SampleRef:
     )
 
 
+from adam.sandbox.guest.http_channel import HTTPGuestChannel
+
+
 def _new_controller(snapshot_name: str | None = None) -> SandboxController:
-    sandbox_settings = get_settings().sandbox
+    settings = get_settings()
+    sandbox_settings = settings.sandbox
     client = VirtualBoxClient()
+    channel = None
+    if settings.guest_backend == "http":
+        channel = HTTPGuestChannel(
+            base_url=settings.http_guest.base_url,
+            capture_dir=settings.http_guest.capture_dir,
+            procmon_path=settings.http_guest.procmon_path,
+            tshark_path=settings.http_guest.tshark_path,
+            sysmon_log=settings.http_guest.sysmon_log,
+            tshark_interface=settings.http_guest.tshark_interface,
+            auth_token=getattr(settings.http_guest, "auth_token", "Adam_Sandbox_SecOps_2026!"),
+            guest_ready_timeout_s=sandbox_settings.guest_ready_timeout_s,
+        )
     return SandboxController(
         client,
         sandbox_settings.vm_name,
@@ -115,6 +138,7 @@ def _new_controller(snapshot_name: str | None = None) -> SandboxController:
         guest_password=sandbox_settings.guest_password,
         boot_timeout=sandbox_settings.boot_timeout_s,
         guest_ready_timeout=sandbox_settings.guest_ready_timeout_s,
+        guest_channel=channel,
     )
 
 

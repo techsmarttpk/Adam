@@ -20,10 +20,12 @@ import typer
 
 from adam.cli.run import run as run_command
 from adam.cli.replay import replay_main as replay_command
+from adam.cli.benchmark import benchmark_app
 
 app = typer.Typer(help="ADAM -- Adaptive Deception Sandbox for Advanced Malware Analysis.")
 app.command(name="run")(run_command)
 app.command(name="replay")(replay_command)
+app.add_typer(benchmark_app, name="benchmark")
 
 
 @app.callback()

@@ -87,10 +87,15 @@ async def test_plant_decoy_documents():
     mut = await prim.apply_async("sess", "corr", "dec", {})
     assert mut.status == MutationStatus.APPLIED
     assert len(mut.changes) == 3
-    
+    # apply_async takes the batch path when channel has apply_mutation_batch
+    # (AsyncMock auto-exposes it) — so apply_mutation is NOT called for creates.
+    assert channel.apply_mutation_batch.call_count == 1
+    assert channel.apply_mutation.call_count == 0
+
     rev = await prim.revert_async(mut)
     assert rev.status == MutationStatus.REVERTED
-    assert channel.apply_mutation.call_count == 6
+    # revert still uses 3 individual apply_mutation DELETE calls
+    assert channel.apply_mutation.call_count == 3
 
 @pytest.mark.asyncio
 async def test_mount_fake_network_share():

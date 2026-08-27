@@ -20,6 +20,8 @@ def replay_main(
     """Replay a session offline via Fusion -> Policy -> Deception."""
     
     async def _run():
+        from adam.common.config import get_settings
+        settings = get_settings()
         await init_dependencies()
         try:
             import uuid
@@ -51,6 +53,7 @@ def replay_main(
                 metrics=SessionMetrics()
             )
             await deps.session_repo.create(metadata)
+            await deps.db_conn.commit()
             
             events_to_replay = []
             
@@ -67,7 +70,7 @@ def replay_main(
                 for ev in all_events:
                     try:
                         ts = datetime.fromisoformat(ev["timestamp"].replace("Z", "+00:00"))
-                    except:
+                    except Exception:
                         ts = datetime.now(timezone.utc)
                     raw_event = RawEvent(
                         event_id=f"raw_{uuid.uuid4().hex[:8]}",
@@ -107,24 +110,45 @@ def replay_main(
                             env.session_id = session_id
                             env.payload.session_id = session_id
                             events_to_replay.append(env)
+                        else:
+                            data['session_id'] = session_id
+                            raw_event = RawEvent.model_validate(data)
+                            env = Envelope[RawEvent](
+                                envelope_version="1.0",
+                                message_id=str(uuid.uuid4()),
+                                message_type="RawEvent",
+                                session_id=session_id,
+                                correlation_id=f"corr_{uuid.uuid4().hex[:8]}",
+                                emitted_at=datetime.now(timezone.utc),
+                                emitter="replay",
+                                payload=raw_event,
+                            )
+                            events_to_replay.append(env)
 
             console.print(f"Replaying {len(events_to_replay)} events for session {session_id}...")
             
             for env in events_to_replay:
                 await deps.bus.publish(env)
             
-            # Allow some time for bus handlers to flush
-            await asyncio.sleep(0.5)
-            
+            # Update session status to COMPLETED
             metadata.status = SessionStatus.COMPLETED
             metadata.ended_at = datetime.now(timezone.utc)
-            metadata.metrics.raw_events = len(events_to_replay)
             await deps.session_repo.update(metadata)
+            await deps.db_conn.commit()
+
+            # Drain bus and shut down dependencies to guarantee database commit
+            await shutdown_dependencies()
             
-            # Fetch summary
-            decisions = await deps.decision_repo.get_by_session(session_id)
-            mutations = await deps.mutation_repo.get_by_session(session_id)
-            semantic_events = await deps.event_repo.get_semantic_by_session(session_id)
+            # Re-open a temporary connection just to fetch final summary counts
+            import aiosqlite
+            from adam.db.repositories.sqlite import SQLiteEventRepository, SQLiteDecisionRepository, SQLiteMutationRepository
+            async with aiosqlite.connect(settings.db.path) as read_conn:
+                e_repo = SQLiteEventRepository(read_conn)
+                d_repo = SQLiteDecisionRepository(read_conn)
+                m_repo = SQLiteMutationRepository(read_conn)
+                decisions = await d_repo.get_by_session(session_id)
+                mutations = await m_repo.get_by_session(session_id)
+                semantic_events = await e_repo.get_semantic_by_session(session_id)
             
             console.print(f"[green]Replay complete.[/green]")
             console.print(f"Semantic Events: {len(semantic_events)}")
@@ -132,7 +156,13 @@ def replay_main(
             console.print(f"Mutations Applied: {len(mutations)}")
             console.print(f"Session ID: {session_id}")
             
-        finally:
-            await shutdown_dependencies()
+        except Exception as e:
+            console.print(f"[red]Error during replay: {e}[/red]")
+            # Ensure dependencies are shut down if an exception occurs
+            try:
+                await shutdown_dependencies()
+            except Exception:
+                pass
+            raise e
 
     asyncio.run(_run())

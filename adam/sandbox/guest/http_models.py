@@ -357,12 +357,16 @@ class SampleUploadData(BaseModel):
 
 
 class SampleStageRequest(BaseModel):
-    staged_path: str
     target_path: str
+    content_base64: str | None = None
+    sha256: str | None = None
+    staged_path: str | None = None
 
 
 class SampleStageData(BaseModel):
     target_path: str
+    sha256: str | None = None
+    size_bytes: int | None = None
 
 
 # --------------------------------------------------------------------- #

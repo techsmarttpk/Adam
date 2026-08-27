@@ -1,4 +1,4 @@
-"""
+r"""
 adam/sandbox/guest/agent/agent.py
 
 GuestAgent -- Phase 5 (Guest Agent & Host<->Guest Channel), scoped

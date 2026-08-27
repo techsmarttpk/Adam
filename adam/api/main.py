@@ -18,21 +18,14 @@ import hashlib
 import random
 from datetime import datetime, timezone
 
-from adam.contracts.semantic_event import SemanticEvent, Actor, AttckRef
+from adam.contracts.semantic_event import SemanticEvent
 from adam.contracts.policy_decision import PolicyDecision
 from adam.contracts.mutation import MutationResult
 from adam.contracts.envelope import Envelope
 from adam.contracts.raw_event import RawEvent
-from adam.pipeline.live import LiveOrchestrator
 from adam.contracts.session import AnalysisSession, SampleRef, SessionConfig, SessionMetrics
-from adam.contracts.enums import Arm, NetworkMode, SessionStatus, Verdict
+from adam.contracts.enums import Arm, NetworkMode, SessionStatus
 from adam.fusion.log_generate import generate_attack_chain, generate_benign_events
-from adam.fusion.engine import EventFusionEngine
-from adam.policy.engine import PolicyEngine
-from adam.policy.context import SessionContext
-from adam.deception.engine import DeceptionEngine
-from tests.unit.test_deception.test_engine import FakeGuestChannel
-from demo.run_simulation import map_detection_to_intent
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 RULES_PATH = BASE_DIR / "rules" / "default"

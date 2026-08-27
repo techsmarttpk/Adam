@@ -31,9 +31,9 @@ class DBWriter:
         self,
         db: aiosqlite.Connection,
         bus: EventBus,
-        max_queue_size: int = 10000,
-        batch_size: int = 100,
-        flush_interval_s: float = 1.0
+        max_queue_size: int = 50000,
+        batch_size: int = 500,
+        flush_interval_s: float = 0.5
     ):
         self.db = db
         self.bus = bus
@@ -45,6 +45,7 @@ class DBWriter:
         self.item_added = asyncio.Event()
         self.task: asyncio.Task[None] | None = None
         self.dropped_raw_events = 0
+        self._overflow_warned = False
         
         self.session_repo = SQLiteSessionRepository(db)
         self.event_repo = SQLiteEventRepository(db)
@@ -76,7 +77,14 @@ class DBWriter:
                     )
                     return
                 else:
-                    logger.warning("DBWriter queue overflowed with high-value events; expanding queue temporarily.")
+                    if not self._overflow_warned:
+                        logger.warning(
+                            "DBWriter queue overflowed (queue_size >= %d) with high-value events; expanding queue temporarily.",
+                            self.max_queue_size
+                        )
+                        self._overflow_warned = True
+        else:
+            self._overflow_warned = False
         
         self.queue.append(envelope)
         self.item_added.set()
@@ -86,10 +94,11 @@ class DBWriter:
 
     def start(self) -> None:
         """Subscribe to the bus and start the writer task."""
-        self.bus.subscribe(RawEvent, self._handler, name="db_writer_raw")
-        self.bus.subscribe(SemanticEvent, self._handler, name="db_writer_semantic")
-        self.bus.subscribe(PolicyDecision, self._handler, name="db_writer_decision")
-        self.bus.subscribe(MutationResult, self._handler, name="db_writer_mutation")
+        # Per ADR-005 ("Raw events to JSONL, not SQLite"): raw events are logged to raw.jsonl.
+        # SQLite stores metadata, semantic events, policy decisions, and mutation results.
+        self.bus.subscribe(SemanticEvent, self._handler, name="db_writer_semantic", queue_size=50000)
+        self.bus.subscribe(PolicyDecision, self._handler, name="db_writer_decision", queue_size=50000)
+        self.bus.subscribe(MutationResult, self._handler, name="db_writer_mutation", queue_size=50000)
         
         try:
             from adam.contracts.session import SessionLifecycle
@@ -134,14 +143,18 @@ class DBWriter:
                 elif isinstance(payload, MutationResult):
                     await self.mutation_repo.create(payload)
                 elif type(payload).__name__ == "SessionLifecycle":
-                    # For SessionLifecycle, we might want to log it or update a session
-                    # But if the orchestrator is already creating/updating the session directly
-                    # via SessionRepo, we could do nothing. We'll simply ignore it for DB insertion.
                     pass
             await self.db.commit()
+            self._commit_warned = False
         except Exception:
             await self.db.rollback()
-            logger.exception("DBWriter failed to commit batch, rolling back.")
+            # Push the uncommitted batch back to the front of the queue to retry
+            for item in reversed(batch):
+                self.queue.appendleft(item)
+            if not getattr(self, "_commit_warned", False):
+                logger.warning("DBWriter batch commit delayed (retrying in next interval).")
+                self._commit_warned = True
+            await asyncio.sleep(0.5)
 
     async def stop(self) -> None:
         """Stop the writer task and flush remaining items."""

@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from typing import List
 
 from adam.common.bus import EventBus
+from adam.common.config import get_settings
 from adam.contracts.envelope import Envelope
 from adam.contracts.raw_event import RawEvent
 from adam.fusion.models import RawEvent as FusionRawEvent
@@ -25,12 +26,11 @@ from adam.fusion.engine import EventFusionEngine
 from adam.policy.engine import PolicyEngine
 from adam.policy.context import SessionContext
 from adam.deception.engine import DeceptionEngine
-from tests.unit.test_deception.test_engine import FakeGuestChannel
+from adam.sandbox.guest.http_channel import HTTPGuestChannel
 
 logger = logging.getLogger(__name__)
 
-# Re-use the existing static map from demo/run_simulation.py
-from demo.run_simulation import map_detection_to_intent
+from adam.fusion.mapping import map_detection_to_intent
 
 class LiveFusionBridge:
     def __init__(self, bus: EventBus, session_id: str):
@@ -131,7 +131,20 @@ class LiveOrchestrator:
         self.policy_engine = PolicyEngine(rules_path)
         self.session_context = SessionContext(session_id=self.session_id)
         
-        self.deception_engine = DeceptionEngine(FakeGuestChannel())
+        # Build real HTTPGuestChannel from config for deception mutations
+        settings = get_settings()
+        http_settings = settings.http_guest
+        guest_channel = HTTPGuestChannel(
+            http_settings.base_url,
+            capture_dir=http_settings.capture_dir,
+            procmon_path=http_settings.procmon_path,
+            tshark_path=http_settings.tshark_path,
+            sysmon_log=http_settings.sysmon_log,
+            tshark_interface=http_settings.tshark_interface,
+            request_timeout_s=http_settings.request_timeout_s,
+            guest_ready_timeout_s=settings.sandbox.guest_ready_timeout_s,
+        )
+        self.deception_engine = DeceptionEngine(guest_channel)
         
         self.bus.subscribe(RawEvent, self.fusion_bridge.handle_raw_event, name="fusion_bridge")
         self.bus.subscribe(SemanticEvent, self.handle_semantic_event, name="policy_deception")

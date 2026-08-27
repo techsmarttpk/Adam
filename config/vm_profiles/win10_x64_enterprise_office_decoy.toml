@@ -1,0 +1,18 @@
+profile_id = "win10_x64_enterprise_office_decoy"
+base_snapshot = "golden/win10-ent-x64-clean"
+network_mode = "host-only-isolated"
+
+[hardware]
+cpu_count = 2
+memory_mb = 4096
+disk_profile = "standard"
+
+[decoy_persona]
+installed_software = ["Microsoft Office 2021", "Adobe Reader"]
+fake_user_documents = true
+fake_browser_history = true
+hostname_pool = ["DESKTOP-7J2KQ1", "DESKTOP-M4XLPW"]
+
+[guest_agent]
+install_path = "C:\\ProgramData\\adam-agent"
+autostart = true

@@ -149,7 +149,7 @@ class TestDefaultTomlParses:
         monkeypatch.setenv("ADAM_ENV", "__test_env_that_does_not_exist__")
 
         settings = Settings()  # type: ignore[call-arg]
-        assert settings.sandbox.vm_name == "ADAM_WIN10_OFFICE"
+        assert settings.sandbox.vm_name == "Windows"
         assert settings.guest_backend == "http"
         assert settings.http_guest.port == 8765
         assert settings.http_guest.host == "192.168.56.103"  # the documented placeholder -- see default.toml's own comment

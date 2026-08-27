@@ -97,8 +97,8 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$Script:TaskName = 'ADAM Guest Agent'
-$Script:RuleName = 'ADAM Guest Agent'
+$Script:TaskName = 'ADAM_Agent'
+$Script:RuleName = 'ADAM_Agent'
 
 # NOTE: these four print helpers use Write-Host, not Write-Output,
 # deliberately. Write-Output puts its argument on the success/pipeline

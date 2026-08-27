@@ -33,10 +33,17 @@
 guest_backend = "http"
 
 [sandbox]
-vm_name               = "ADAM_WIN10_OFFICE"
-snapshot_name         = "clean"
-boot_timeout_s        = 60.0
-guest_ready_timeout_s = 150.0
+vm_name               = "Windows"
+# "disk-resized-36gb-c-drive" is the canonical golden baseline (config/NOTES.md,
+# 2026-08-11): the ONLY snapshot verified through the real per-run
+# VBoxManage snapshot restore path, carrying the extended 36 GB C: drive
+# required for the guest agent to start reliably. "clean" is retained in
+# the snapshot tree as a rollback anchor only -- do NOT restore to it for
+# normal runs. Supersedes the former "clean" default that caused guest-agent
+# startup failures when ADAM_ENV was not explicitly set to "development".
+snapshot_name         = "disk-resized-36gb-c-drive"
+boot_timeout_s        = 300.0
+guest_ready_timeout_s = 300.0
 
 # Guest-side telemetry tools (Phase 5 -- Guest Agent). Paths are INSIDE the
 # guest VM, not on the host -- see adam/common/config.py's GuestToolsSettings

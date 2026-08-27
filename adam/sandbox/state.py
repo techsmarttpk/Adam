@@ -53,19 +53,29 @@ from adam.common.errors import VMOperationError
 
 class SandboxState(enum.Enum):
     """
-    The nine states of the Sandbox Controller FSM. This enum only names the
-    states -- see controller.py for the exact legal transition table.
+    States of the Sandbox Controller FSM.
+    Covers full lifecycle: PROVISIONING -> BOOTING -> AGENT_HANDSHAKE -> READY ->
+    ARMED -> DETONATING (RUNNING) -> COLLECTING -> TEARING_DOWN (TEARDOWN) -> COMPLETED (COMPLETE),
+    and FAILED / ERROR reachable from any state.
     """
 
     COLD = "COLD"
+    PROVISIONING = "PROVISIONING"
     RESTORING = "RESTORING"
     BOOTING = "BOOTING"
+    AGENT_HANDSHAKE = "AGENT_HANDSHAKE"
     READY = "READY"
     ARMED = "ARMED"
     RUNNING = "RUNNING"
-    COMPLETED = "COMPLETED"
+    DETONATING = "DETONATING"
+    COLLECTING = "COLLECTING"
+    TEARING_DOWN = "TEARING_DOWN"
     TEARDOWN = "TEARDOWN"
+    COMPLETED = "COMPLETED"
+    COMPLETE = "COMPLETE"
+    ERROR = "ERROR"
     FAILED = "FAILED"
+
 
 
 class SandboxStateError(_CommonSandboxStateError):

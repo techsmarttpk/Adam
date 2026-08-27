@@ -34,6 +34,19 @@ class GuestMutationChannel(Protocol):
     async def apply_mutation(self, kind: str, target: str, operation: str, value: str | None) -> None:
         ...
 
+    async def apply_mutation_batch(
+        self, file_creates: list[tuple[str, str | None]], timeout_s: float = 30.0
+    ) -> None:
+        """
+        Batch FILE CREATE variant: write N files in a single PowerShell invocation.
+
+        Implementors (HTTPGuestChannel) override this for real guest execution.
+        Non-HTTP channels (VBoxGuestChannel, mocks) can raise NotImplementedError
+        here; primitives that call this must document that they require the HTTP
+        backend.
+        """
+        ...
+
 
 class DeceptionPrimitive(IDeception, ABC):
     name: str = "UnnamedPrimitive"

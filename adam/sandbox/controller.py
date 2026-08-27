@@ -51,13 +51,19 @@ Error-handling design (read this before changing a method):
 
 from __future__ import annotations
 
+import asyncio
+import logging
 from typing import Coroutine, Any
 
 from adam.contracts.interfaces import MutationRequest, MutationResult
 from adam.contracts.session import SampleRef
+from adam.sandbox.guest.channel import GuestChannel
+from adam.sandbox.guest.http_models import GuestAgentUnreachableError
 from adam.sandbox.state import SandboxOperationError, SandboxState, SandboxStateError
 from adam.sandbox.vbox.client import VBoxCommandError, VirtualBoxClient
 from adam.sandbox.vbox.models import VMOperationResult
+
+logger = logging.getLogger(__name__)
 
 
 class SandboxController:
@@ -71,29 +77,29 @@ class SandboxController:
         snapshot_name: str = "clean",
         guest_username: str,
         guest_password: str,
+        guest_channel: GuestChannel | None = None,
+        guest_agent: GuestChannel | None = None,
         boot_timeout: float = 60.0,
         guest_ready_timeout: float = 150.0,
         detonate_timeout: float = 300.0,
+        headless: bool = True,
     ) -> None:
         self._client = client
         self._vm_name = vm_name
         self._snapshot_name = snapshot_name
         self._guest_username = guest_username
         self._guest_password = guest_password
+        self._guest_channel = guest_channel or guest_agent
         self._boot_timeout = boot_timeout
         self._guest_ready_timeout = guest_ready_timeout
         self._detonate_timeout = detonate_timeout
         self._state = SandboxState.COLD
+        self.vm_profile = None
+        self._headless = headless
 
-        # Recorded by arm(), consumed by detonate(sample) -- see detonate()'s
-        # docstring for why the guest path is no longer a detonate() argument.
+        # Recorded by arm(), consumed by detonate(sample)
         self._armed_guest_target_path: str | None = None
 
-        # Introspection only -- ISandboxController.detonate() returns None
-        # (matching the Protocol), so a caller that needs the underlying
-        # VMOperationResult (exit code, stdout/stderr, termination_reason)
-        # reads it here immediately afterwards, same information as before,
-        # just not smuggled through the return value.
         self._last_detonation_result: VMOperationResult | None = None
         self._last_detonated_sample: SampleRef | None = None
 
@@ -103,20 +109,15 @@ class SandboxController:
 
     @property
     def last_detonation_result(self) -> VMOperationResult | None:
-        """
-        The VMOperationResult from the most recent detonate() call, or None
-        if detonate() has never been called. See __init__'s comment: this
-        exists because ISandboxController.detonate() returns None, so this
-        is how a caller recovers the same success/return_code/stdout/stderr/
-        termination_reason detail the pre-Phase-2 detonate() used to return
-        directly.
-        """
         return self._last_detonation_result
 
     @property
     def last_detonated_sample(self) -> SampleRef | None:
-        """The SampleRef passed to the most recent detonate() call, or None."""
         return self._last_detonated_sample
+
+    @property
+    def guest_channel(self) -> GuestChannel | None:
+        return self._guest_channel
 
     # ------------------------------------------------------------------ #
     # internal
@@ -128,14 +129,6 @@ class SandboxController:
 
     @staticmethod
     async def _step(operation: str, coro: "Coroutine[Any, Any, VMOperationResult]") -> VMOperationResult:
-        """
-        Await coro (a VirtualBoxClient call used by prepare()/arm()) and
-        raise SandboxOperationError uniformly whether the failure is a
-        VMOperationResult(success=False) or a VBoxCommandError -- both are
-        infrastructure failures from prepare()/arm()'s point of view. Not
-        used by detonate(), which treats these two cases differently (see
-        module docstring).
-        """
         try:
             result = await coro
         except VBoxCommandError as exc:
@@ -150,23 +143,41 @@ class SandboxController:
 
     async def prepare(self) -> None:
         """
-        COLD -> RESTORING -> BOOTING -> READY.
+        COLD -> PROVISIONING -> RESTORING -> BOOTING -> AGENT_HANDSHAKE -> READY.
 
         Restores the clean snapshot, starts the VM, waits for VirtualBox to
-        report it running, then waits for Guest Additions to respond.
+        report it running, waits for Guest Additions, performs agent handshake,
+        and transitions to READY. Guaranteed snapshot restore on any failure past PROVISIONING.
         """
         self._require_state("prepare", SandboxState.COLD)
-        self._state = SandboxState.RESTORING
+        self._state = SandboxState.PROVISIONING
 
         try:
+            current_state = await self._client.get_state(self._vm_name)
+            if current_state in ("running", "paused", "stuck"):
+                await self._client.stop(self._vm_name, mode="poweroff")
+            elif current_state == "saved":
+                await self._client.discard_saved_state(self._vm_name)
+
+            self._state = SandboxState.RESTORING
             await self._step(
                 "restore_snapshot",
                 self._client.restore_snapshot(self._vm_name, self._snapshot_name),
             )
+            await asyncio.sleep(2.0)
+
+            # Apply profile hardware if specified
+            if getattr(self, "vm_profile", None) and self.vm_profile != "bare_control":
+                try:
+                    from adam.sandbox.vbox.profile_applier import load_profile, apply_profile_hardware
+                    profile = load_profile(f"win10_x64_{self.vm_profile}")
+                    await apply_profile_hardware(self._client, self._vm_name, profile)
+                except Exception as e:
+                    logger.warning("Failed to apply profile hardware: %s", e)
 
             self._state = SandboxState.BOOTING
 
-            await self._step("start", self._client.start(self._vm_name, headless=True))
+            await self._step("start", self._client.start(self._vm_name, headless=self._headless))
             await self._step(
                 "wait_for_state(running)",
                 self._client.wait_for_state(self._vm_name, "running", timeout=self._boot_timeout),
@@ -180,131 +191,197 @@ class SandboxController:
                     timeout=self._guest_ready_timeout,
                 ),
             )
-        except SandboxOperationError:
-            self._state = SandboxState.FAILED
-            raise
+
+            self._state = SandboxState.AGENT_HANDSHAKE
+            if self._guest_channel is not None:
+                if hasattr(self._guest_channel, "wait_until_ready"):
+                    await self._guest_channel.wait_until_ready()
+                else:
+                    await self._guest_channel.verify_tools()
+
+                # Apply profile persona if specified
+                if getattr(self, "vm_profile", None) and self.vm_profile != "bare_control":
+                    try:
+                        from adam.sandbox.vbox.profile_applier import load_profile, apply_profile_persona
+                        profile = load_profile(f"win10_x64_{self.vm_profile}")
+                        await apply_profile_persona(self._guest_channel, profile)
+                    except Exception as e:
+                        logger.warning("Failed to apply profile persona: %s", e)
+
+        except Exception as exc:
+            try:
+                await self._client.stop(self._vm_name, mode="poweroff")
+            except Exception:
+                pass
+            try:
+                await self._client.restore_snapshot(self._vm_name, self._snapshot_name)
+            except Exception:
+                pass
+            self._state = SandboxState.ERROR
+            if isinstance(exc, SandboxOperationError):
+                raise
+            raise SandboxOperationError("prepare", exc) from exc
 
         self._state = SandboxState.READY
 
-    async def arm(self, host_sample_path: str, guest_target_path: str, *, timeout: float = 30.0) -> None:
-        """READY -> ARMED. Copies the sample onto the guest."""
+    async def arm(self, host_sample_path: str, guest_target_path: str, *, timeout: float = 60.0) -> None:
+        """READY -> ARMED. Stages the sample onto the guest via HTTP agent (fallback to copy_to_guest)."""
         self._require_state("arm", SandboxState.READY)
 
         try:
-            await self._step(
-                "copy_to_guest",
-                self._client.copy_to_guest(
-                    self._vm_name,
-                    guest_username=self._guest_username,
-                    guest_password=self._guest_password,
-                    host_source_path=host_sample_path,
-                    guest_target_path=guest_target_path,
-                    timeout=timeout,
-                ),
-            )
-        except SandboxOperationError:
-            self._state = SandboxState.FAILED
-            raise
+            if self._guest_channel is not None and hasattr(self._guest_channel, "stage_sample"):
+                try:
+                    await self._guest_channel.stage_sample(
+                        host_sample_path, guest_target_path, timeout=timeout
+                    )
+                except GuestAgentUnreachableError as exc:
+                    logger.warning(
+                        "HTTP guest agent unreachable during arm(), falling back to guestcontrol copyto: %s",
+                        exc,
+                    )
+                    await self._step(
+                        "copy_to_guest (fallback)",
+                        self._client.copy_to_guest(
+                            self._vm_name,
+                            guest_username=self._guest_username,
+                            guest_password=self._guest_password,
+                            host_source_path=host_sample_path,
+                            guest_target_path=guest_target_path,
+                            timeout=timeout,
+                        ),
+                    )
+            else:
+                await self._step(
+                    "copy_to_guest",
+                    self._client.copy_to_guest(
+                        self._vm_name,
+                        guest_username=self._guest_username,
+                        guest_password=self._guest_password,
+                        host_source_path=host_sample_path,
+                        guest_target_path=guest_target_path,
+                        timeout=timeout,
+                    ),
+                )
+        except Exception as exc:
+            try:
+                await self._client.stop(self._vm_name, mode="poweroff")
+            except Exception:
+                pass
+            try:
+                await self._client.restore_snapshot(self._vm_name, self._snapshot_name)
+            except Exception:
+                pass
+            self._state = SandboxState.ERROR
+            if isinstance(exc, SandboxOperationError):
+                raise
+            raise SandboxOperationError("arm", exc) from exc
 
         self._armed_guest_target_path = guest_target_path
         self._state = SandboxState.ARMED
 
     async def detonate(self, sample: SampleRef) -> None:
         """
-        ARMED -> RUNNING -> COMPLETED. Matches
-        adam.contracts.interfaces.ISandboxController.detonate() exactly.
-
-        Executes the sample previously delivered by arm() -- at the guest
-        path arm() copied it to, recorded in self._armed_guest_target_path
-        -- and blocks until it exits or self._detonate_timeout elapses. No
-        separate `arguments`/`timeout` parameters exist anymore, per the
-        Protocol: a sandbox detonates the sample it was armed with, run
-        directly, not an arbitrary guest command. `sample` is recorded via
-        last_detonated_sample for introspection/future session metrics but
-        is not otherwise required to match the armed file -- arm() and
-        detonate() are not currently cross-validated against each other's
-        SampleRef, since arm()'s host_sample_path is still a plain path (see
-        arm()'s own signature); that reconciliation is a smaller, separate
-        follow-up, not blocking here.
-
-        The result -- including a non-zero return_code or a VBoxManage-
-        reported crash -- is stored on self._last_detonation_result rather
-        than returned (the Protocol's return type is None) and is never
-        raised for; see module docstring. Only VBoxManage itself being
-        unreachable raises (SandboxOperationError, wrapping the underlying
-        VBoxCommandError), since that is an infrastructure failure rather
-        than data about the sample.
-
-        State moves to RUNNING the instant the sample is dispatched and to
-        COMPLETED synchronously before this method returns (on the success
-        path) -- a caller polling .state from a separate task sees an
-        honest read throughout.
+        ARMED -> DETONATING (RUNNING) -> COLLECTING -> COMPLETED.
+        Matches adam.contracts.interfaces.ISandboxController.detonate() exactly.
+        Executes sample via HTTP agent /process/start (fallback to run_in_guest).
         """
         self._require_state("detonate", SandboxState.ARMED)
         assert self._armed_guest_target_path is not None, (
             "invariant violated: state is ARMED but no guest target path was "
             "recorded by arm() -- see arm()'s implementation"
         )
-        self._state = SandboxState.RUNNING
+        self._state = SandboxState.DETONATING
 
         try:
-            result = await self._client.run_in_guest(
-                self._vm_name,
-                guest_username=self._guest_username,
-                guest_password=self._guest_password,
-                executable_path=self._armed_guest_target_path,
-                arguments=None,
-                timeout=self._detonate_timeout,
-            )
+            if self._guest_channel is not None and hasattr(self._guest_channel, "run_process"):
+                try:
+                    result = await self._guest_channel.run_process(
+                        executable_path=self._armed_guest_target_path,
+                        arguments=None,
+                        wait=True,
+                        timeout_s=self._detonate_timeout,
+                    )
+                except GuestAgentUnreachableError as exc:
+                    logger.warning(
+                        "HTTP guest agent unreachable during detonate(), falling back to guestcontrol run: %s",
+                        exc,
+                    )
+                    result = await self._client.run_in_guest(
+                        self._vm_name,
+                        guest_username=self._guest_username,
+                        guest_password=self._guest_password,
+                        executable_path=self._armed_guest_target_path,
+                        arguments=None,
+                        timeout=self._detonate_timeout,
+                    )
+            else:
+                result = await self._client.run_in_guest(
+                    self._vm_name,
+                    guest_username=self._guest_username,
+                    guest_password=self._guest_password,
+                    executable_path=self._armed_guest_target_path,
+                    arguments=None,
+                    timeout=self._detonate_timeout,
+                )
         except VBoxCommandError as exc:
-            self._state = SandboxState.FAILED
+            try:
+                await self._client.stop(self._vm_name, mode="poweroff")
+            except Exception:
+                pass
+            try:
+                await self._client.restore_snapshot(self._vm_name, self._snapshot_name)
+            except Exception:
+                pass
+            self._state = SandboxState.ERROR
             raise SandboxOperationError("detonate (VBoxManage unreachable)", exc) from exc
+        except Exception as exc:
+            try:
+                await self._client.stop(self._vm_name, mode="poweroff")
+            except Exception:
+                pass
+            try:
+                await self._client.restore_snapshot(self._vm_name, self._snapshot_name)
+            except Exception:
+                pass
+            self._state = SandboxState.ERROR
+            raise SandboxOperationError("detonate", exc) from exc
 
+        self._state = SandboxState.COLLECTING
         self._last_detonation_result = result
         self._last_detonated_sample = sample
         self._state = SandboxState.COMPLETED
 
     async def apply_mutation(self, mutation: MutationRequest) -> MutationResult:
         """
-        ISandboxController.apply_mutation() -- ARCHITECTURE.md sections 5.2
-        (this class exposes it) and 5.6 (Dev C's Deception Engine calls it).
-
-        Not yet implemented: applying a deception primitive inside the guest
-        is the Deception Engine's concern, and that engine doesn't exist yet
-        (Phase blocked per docs/implementation-audit.md). This stub exists
-        so SandboxController satisfies the full ISandboxController Protocol
-        surface -- checkable via isinstance()/mypy -- ahead of that engine
-        landing, per docs/remaining-work-plan.md's Immediate bucket, rather
-        than silently missing one Protocol method the way it did before
-        Phase 2 existed to check against.
-
-        Deliberately still validates state (a mutation request against a
-        controller that isn't RUNNING is a caller error worth surfacing
-        distinctly from "not implemented yet") before raising.
+        ISandboxController.apply_mutation() stub.
         """
-        self._require_state("apply_mutation", SandboxState.RUNNING)
+        self._require_state("apply_mutation", SandboxState.RUNNING, SandboxState.DETONATING)
         raise NotImplementedError(
             "apply_mutation() is not yet implemented -- awaiting the "
             "Deception Engine (ARCHITECTURE.md section 5.6, Dev C). "
-            "Tracked in docs/remaining-work-plan.md, 'Next' bucket item 10."
         )
 
     async def teardown(self) -> None:
         """
-        Callable from ANY state, including COLD (no-op-ish) and FAILED.
+        Callable from ANY state, including COLD and ERROR / FAILED.
         Best-effort stop(poweroff) + restore_snapshot(clean); always ends
         in COLD. Never raises.
         """
-        self._state = SandboxState.TEARDOWN
+        self._state = SandboxState.TEARING_DOWN
 
         try:
-            await self._client.stop(self._vm_name, mode="poweroff")
-        except VBoxCommandError:
-            pass  # best-effort: VBoxManage unreachable is not fixable by raising here
+            state = await self._client.get_state(self._vm_name)
+            if state in ("running", "paused", "stuck"):
+                await self._client.stop(self._vm_name, mode="poweroff")
+            elif state == "saved":
+                await self._client.discard_saved_state(self._vm_name)
+        except Exception:
+            pass
 
         try:
             await self._client.restore_snapshot(self._vm_name, self._snapshot_name)
         except VBoxCommandError:
-            pass  # same reasoning
+            pass
 
         self._state = SandboxState.COLD
+

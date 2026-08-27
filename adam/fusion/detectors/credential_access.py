@@ -44,24 +44,16 @@ class CredentialAccessDetector(BaseDetector):
         ),
     ]
 
+    STRONG_INDICATORS = RULES[0][1]
+    MEDIUM_INDICATORS = RULES[1][1]
+    WEAK_INDICATORS = RULES[2][1]
+
     SCORE_THRESHOLD = 6
 
     def match(self, events):
-
         score, matched = self.score_events(events)
-
-        print("=" * 50)
-        print("Score:", score)
-
-        for e in matched:
-            print(e.process_name)
-            print(e.command_line)
-
-        print("=" * 50)
-
         if score >= self.SCORE_THRESHOLD:
             return matched
-
         return None
 
     def build(self, matched: list[RawEvent]) -> SemanticEvent:

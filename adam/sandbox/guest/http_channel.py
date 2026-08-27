@@ -62,7 +62,7 @@ import base64
 import hashlib
 import logging
 import time
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from typing import Any, TypeVar
 
 import httpx
@@ -82,16 +82,32 @@ from adam.sandbox.guest.http_models import (
     NetworkInterfacesData,
     NetworkStartRequest,
     NetworkStopRequest,
+    ProcessStartData,
+    ProcessStartRequest,
     ProcmonExportRequest,
     ProcmonStartRequest,
     ProcmonStopRequest,
     ResponseEnvelope,
+    SampleStageData,
+    SampleStageRequest,
+    SampleUploadData,
+    SampleUploadRequest,
     SysmonDiagnosticsData,
     SysmonExportData,
     SysmonExportRequest,
     TokenData,
     VersionData,
 )
+from adam.sandbox.vbox.models import VMOperationResult
+from adam.sandbox.vbox.ntstatus import decode_ntstatus
+
+
+class StageResult(BaseModel):
+    success: bool
+    target_path: str
+    sha256: str
+    size_bytes: int
+
 
 logger = logging.getLogger(__name__)
 
@@ -126,6 +142,7 @@ class HTTPGuestChannel:
         tshark_path: str | None,
         sysmon_log: str,
         tshark_interface: str = "1",
+        auth_token: str | None = None,
         request_timeout_s: float = 15.0,
         retry_attempts: int = 3,
         retry_backoff_s: float = 0.2,
@@ -173,13 +190,21 @@ class HTTPGuestChannel:
         self._tshark_path = tshark_path
         self._sysmon_log = sysmon_log
         self._tshark_interface = tshark_interface
+        self._auth_token = auth_token
         self._default_timeout = request_timeout_s
         self._retry_attempts = max(1, retry_attempts)
         self._retry_backoff_s = retry_backoff_s
         self._guest_ready_timeout_s = guest_ready_timeout_s
         self._readiness_poll_interval_s = readiness_poll_interval_s
         self._ready = False
-        self._client = client or httpx.AsyncClient(base_url=self._base_url, timeout=request_timeout_s)
+        self._retry_count = 0
+        self._mutation_lock = asyncio.Lock()
+        headers = {"X-Adam-Token": auth_token} if auth_token else {}
+        self._client = client or httpx.AsyncClient(base_url=self._base_url, timeout=request_timeout_s, headers=headers)
+
+    @property
+    def retry_count(self) -> int:
+        return self._retry_count
 
     async def aclose(self) -> None:
         """Closes the underlying httpx client. Callers that inject their own `client` own its lifecycle instead."""
@@ -211,14 +236,26 @@ class HTTPGuestChannel:
         retry budget spent on an error retrying can't fix.
         """
         last_exc: httpx.HTTPError | None = None
+        headers = {"X-Adam-Token": self._auth_token} if self._auth_token else None
+        req_timeout = timeout or self._default_timeout
         for attempt in range(1, self._retry_attempts + 1):
             try:
                 return await self._client.request(
-                    method, path, json=json_body, params=params, timeout=timeout or self._default_timeout
+                    method, path, json=json_body, params=params, headers=headers, timeout=req_timeout
                 )
             except _RETRYABLE_TRANSPORT_ERRORS as exc:
                 last_exc = exc
+                if isinstance(exc, (httpx.ReadTimeout, httpx.WriteTimeout, httpx.PoolTimeout, httpx.RemoteProtocolError)):
+                    try:
+                        await self._client.aclose()
+                    except Exception:
+                        pass
+                    client_headers = {"X-Adam-Token": self._auth_token} if self._auth_token else {}
+                    self._client = httpx.AsyncClient(
+                        base_url=self._base_url, timeout=self._default_timeout, headers=client_headers
+                    )
                 if attempt < self._retry_attempts:
+                    self._retry_count += 1
                     backoff = self._retry_backoff_s * (2 ** (attempt - 1))
                     logger.warning(
                         "guest_http: %s transient transport error on attempt %d/%d, retrying in %.2fs: %s",
@@ -336,8 +373,29 @@ class HTTPGuestChannel:
         `wait_until_ready()` loop IS this method's retry strategy.
         """
         try:
-            response = await self._client.get("/health", timeout=self._default_timeout)
+            headers = {"X-Adam-Token": self._auth_token} if self._auth_token else None
+            health_timeout = min(3.0, self._default_timeout)
+            response = await self._client.get("/health", headers=headers, timeout=health_timeout)
         except httpx.HTTPError as exc:
+            if "192.168." in str(self._client.base_url) and self._default_timeout > 5.0:
+                for candidate in ["192.168.19.101", "192.168.19.102", "192.168.56.103"]:
+                    if candidate not in str(self._client.base_url):
+                        try:
+                            headers = {"X-Adam-Token": self._auth_token} if self._auth_token else None
+                            port = self._client.base_url.port or 8765
+                            alt_url = f"http://{candidate}:{port}"
+                            async with httpx.AsyncClient(base_url=alt_url, timeout=0.5, headers=headers) as alt_client:
+                                alt_resp = await alt_client.get("/health")
+                                if alt_resp.status_code == 200:
+                                    envelope = ResponseEnvelope.model_validate(alt_resp.json())
+                                    if envelope.success:
+                                        logger.info("[HTTPGuestChannel] Auto-discovered active guest IP: %s", candidate)
+                                        self._base_url = alt_url
+                                        await self._client.aclose()
+                                        self._client = httpx.AsyncClient(base_url=self._base_url, timeout=self._default_timeout, headers=headers)
+                                        return True, "ok"
+                        except Exception:
+                            pass
             return False, f"transport error: {exc}"
 
         if response.status_code != 200:
@@ -406,6 +464,7 @@ class HTTPGuestChannel:
             if healthy:
                 elapsed = time.monotonic() - started
                 logger.info("guest_http: HTTP guest agent is healthy after %.1f seconds.", elapsed)
+                await asyncio.sleep(2.0)
                 self._ready = True
                 return
 
@@ -513,6 +572,9 @@ class HTTPGuestChannel:
             label="start_captures: mkdir capture_dir",
         )
 
+        self._procmon_started = False
+        self._tshark_started = False
+
         if capture_procmon and self._procmon_path is not None:
             pml_path = self._guest_path(f"{session_id}_procmon.pml")
             result = await self._request(
@@ -521,6 +583,8 @@ class HTTPGuestChannel:
                 label="start_captures: procmon",
             )
             logger.info("[HTTPGuestChannel] session=%s procmon start result=%s", session_id, result)
+            if result is not None:
+                self._procmon_started = True
 
         if capture_network and self._tshark_path is not None:
             interfaces = await self._request("GET", "/network/interfaces", label="start_captures: list interfaces")
@@ -538,6 +602,8 @@ class HTTPGuestChannel:
                 label="start_captures: tshark",
             )
             logger.info("[HTTPGuestChannel] session=%s tshark start result=%s", session_id, result)
+            if result is not None:
+                self._tshark_started = True
 
     # ------------------------------------------------------------------ #
     # GuestChannel: stop_export_and_fetch
@@ -579,7 +645,7 @@ class HTTPGuestChannel:
         return await self._fetch_file(guest_evtx, host_dir / "sysmon.evtx", label=f"session={session_id} sysmon")
 
     async def _export_procmon(self, session_id: str, host_dir: Path) -> str | None:
-        if self._procmon_path is None:
+        if self._procmon_path is None or not getattr(self, "_procmon_started", False):
             return None
         pml_path = self._guest_path(f"{session_id}_procmon.pml")
         csv_path = self._guest_path(f"{session_id}_procmon.csv")
@@ -610,7 +676,7 @@ class HTTPGuestChannel:
         return await self._fetch_file(csv_path, host_dir / "procmon.csv", label=f"session={session_id} procmon")
 
     async def _export_network(self, session_id: str, host_dir: Path) -> str | None:
-        if self._tshark_path is None:
+        if self._tshark_path is None or not getattr(self, "_tshark_started", False):
             return None
         pcap_path = self._guest_path(f"{session_id}_network.pcapng")
         ek_path = self._guest_path(f"{session_id}_network.ek.json")
@@ -692,6 +758,377 @@ class HTTPGuestChannel:
         """Same raising contract as get_health() -- see the section docstring above."""
         return await self._get_raising("/version", VersionData)
 
+    # ------------------------------------------------------------------ #
+    # Sample Staging & Process Execution
+    # ------------------------------------------------------------------ #
+
+    async def stage_sample(
+        self,
+        host_source_path: str | Path,
+        guest_target_path: str,
+        *,
+        timeout: float | None = None,
+    ) -> StageResult:
+        """
+        Stage a sample executable onto the guest filesystem via POST /sample/stage.
+
+        Reads the host-side file, calculates its SHA-256 locally, base64 encodes it,
+        and transmits it to the guest agent. Verifies that the guest agent's computed
+        SHA-256 matches what was sent before returning success.
+
+        Raises:
+            FileNotFoundError: if host_source_path does not exist.
+            ValueError: if guest returned SHA256 does not match the local SHA256.
+            GuestAgentUnreachableError: if HTTP transport fails.
+            GuestAgentError: if agent reports success=false.
+        """
+        host_path = Path(host_source_path)
+        if not host_path.is_file():
+            raise FileNotFoundError(f"Host sample file not found: {host_path}")
+
+        data = host_path.read_bytes()
+        expected_sha256 = hashlib.sha256(data).hexdigest().lower()
+        content_b64 = base64.b64encode(data).decode("ascii")
+
+        req = SampleStageRequest(
+            target_path=guest_target_path,
+            content_base64=content_b64,
+            sha256=expected_sha256,
+            staged_path=guest_target_path,
+        )
+
+        staging_timeout = max(timeout or 0.0, 60.0)
+        try:
+            response = await self._send_with_retry(
+                "POST",
+                "/sample/stage",
+                json_body=req.model_dump(exclude_none=True),
+                timeout=staging_timeout,
+                label="stage_sample",
+            )
+            envelope = ResponseEnvelope.model_validate(response.json())
+        except httpx.HTTPError as exc:
+            raise GuestAgentUnreachableError(
+                f"could not reach guest agent to stage sample at {self._base_url}/sample/stage: {exc}"
+            ) from exc
+
+        if not envelope.success:
+            if envelope.error_code == "UNAUTHORIZED":
+                raise GuestAgentError(envelope.error_code, envelope.error_message)
+
+            # Fall back to two-step upload -> stage for older guest agent implementations
+            # Fall back to two-step upload -> stage for older guest agent implementations
+            p = PureWindowsPath(guest_target_path)
+            upload_req = SampleUploadRequest(
+                sample_dir=str(p.parent),
+                filename=p.name,
+                sha256=expected_sha256,
+                content_base64=content_b64,
+            )
+            up_resp = await self._send_with_retry(
+                "POST",
+                "/sample/upload",
+                json_body=upload_req.model_dump(exclude_none=True),
+                timeout=timeout or self._default_timeout,
+                label="upload_sample_fallback",
+            )
+            up_env = ResponseEnvelope.model_validate(up_resp.json())
+            if not up_env.success:
+                raise GuestAgentError(up_env.error_code, up_env.error_message)
+            up_data = SampleUploadData.model_validate(up_env.data or {})
+
+            # Stage from the uploaded path
+            stage_req = SampleStageRequest(
+                staged_path=up_data.staged_path,
+                target_path=guest_target_path,
+            )
+            stage_resp = await self._send_with_retry(
+                "POST",
+                "/sample/stage",
+                json_body=stage_req.model_dump(exclude_none=True),
+                timeout=timeout or self._default_timeout,
+                label="stage_sample_fallback",
+            )
+            envelope = ResponseEnvelope.model_validate(stage_resp.json())
+            if not envelope.success:
+                raise GuestAgentError(envelope.error_code, envelope.error_message)
+
+        stage_data = SampleStageData.model_validate(envelope.data or {})
+        returned_sha256 = (stage_data.sha256 or expected_sha256).lower()
+        if returned_sha256 != expected_sha256:
+            raise ValueError(
+                f"Sample SHA256 mismatch during staging: host sent {expected_sha256}, "
+                f"guest agent reported {returned_sha256}"
+            )
+
+        logger.info(
+            "[HTTPGuestChannel] staged %s -> %s (%d bytes, sha256=%s)",
+            host_path, guest_target_path, len(data), expected_sha256,
+        )
+        return StageResult(
+            success=True,
+            target_path=guest_target_path,
+            sha256=returned_sha256,
+            size_bytes=stage_data.size_bytes if stage_data.size_bytes is not None else len(data),
+        )
+
+    async def run_process(
+        self,
+        executable_path: str,
+        arguments: list[str] | None = None,
+        *,
+        working_directory: str | None = None,
+        wait: bool = True,
+        timeout_s: float | None = None,
+    ) -> VMOperationResult:
+        """
+        Launch and optionally wait for an executable on the guest via POST /process/start.
+
+        Returns VMOperationResult capturing exit_code, stdout, stderr, and decoded NTSTATUS.
+        Raises:
+            GuestAgentUnreachableError: if HTTP transport fails.
+            GuestAgentError: if agent reports success=false.
+        """
+        start = time.monotonic()
+        req = ProcessStartRequest(
+            executable=executable_path,
+            arguments=arguments or [],
+            working_directory=working_directory,
+            wait=wait,
+            timeout_s=timeout_s,
+        )
+
+        timeout_budget = (timeout_s + 15.0) if timeout_s is not None else max(self._default_timeout, 30.0)
+        try:
+            response = await self._send_with_retry(
+                "POST",
+                "/process/start",
+                json_body=req.model_dump(exclude_none=True),
+                timeout=timeout_budget,
+                label=f"run_process: {executable_path}",
+            )
+        except httpx.HTTPError as exc:
+            raise GuestAgentUnreachableError(
+                f"could not reach guest agent for process start at {self._base_url}/process/start: {exc}"
+            ) from exc
+
+        try:
+            envelope = ResponseEnvelope.model_validate(response.json())
+        except Exception as exc:
+            raise GuestAgentUnreachableError(
+                f"guest agent returned unparseable response for process start: {exc}"
+            ) from exc
+
+        if not envelope.success:
+            raise GuestAgentError(envelope.error_code, envelope.error_message)
+
+        proc_data = ProcessStartData.model_validate(envelope.data or {})
+        duration_ms = (time.monotonic() - start) * 1000
+        rc = proc_data.exit_code if proc_data.exit_code is not None else 0
+        cmd_tuple = ("http_agent", "/process/start", executable_path) + (tuple(arguments) if arguments else ())
+        return VMOperationResult(
+            success=(rc == 0),
+            command=cmd_tuple,
+            duration_ms=duration_ms,
+            return_code=rc,
+            stdout=proc_data.stdout or "",
+            stderr=proc_data.stderr or "",
+            termination_reason=decode_ntstatus(rc),
+        )
+
+    async def apply_mutation(self, kind: str, target: str, operation: str, value: str | None) -> None:
+        """
+        Apply a deception primitive mutation (file creation/deletion, registry setting)
+        directly to the guest via HTTP agent / process execution.
+        """
+        async with self._mutation_lock:
+            kind_upper = str(kind).upper()
+            op_upper = str(operation).upper()
+
+            result = None
+            if "FILE" in kind_upper:
+                if op_upper in ("CREATE", "SET", "WRITE"):
+                    val_text = value or ""
+                    cmd = (
+                        f"$parent = Split-Path -Parent '{target}'; "
+                        f"if (-not (Test-Path $parent)) {{ New-Item -ItemType Directory -Force -Path $parent | Out-Null }}; "
+                        f"Set-Content -Path '{target}' -Value '{val_text}' -Force"
+                    )
+                    result = await self.run_process(
+                        "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+                        ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", cmd],
+                        wait=True,
+                        timeout_s=60.0,
+                    )
+                    logger.info(
+                        "[HTTPGuestChannel] apply_mutation FILE CREATE target=%s rc=%s stdout=%s stderr=%s",
+                        target, result.return_code if result else "N/A", result.stdout if result else "", result.stderr if result else "",
+                    )
+                elif op_upper == "DELETE":
+                    cmd = f"if (Test-Path '{target}') {{ Remove-Item -Path '{target}' -Force -Recurse }}"
+                    result = await self.run_process(
+                        "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+                        ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", cmd],
+                        wait=True,
+                        timeout_s=60.0,
+                    )
+                    logger.info(
+                        "[HTTPGuestChannel] apply_mutation FILE DELETE target=%s rc=%s stdout=%s stderr=%s",
+                        target, result.return_code if result else "N/A", result.stdout if result else "", result.stderr if result else "",
+                    )
+            elif "REGISTRY" in kind_upper:
+                if op_upper in ("SET", "MASK", "CREATE"):
+                    val_text = value or ""
+                    cmd = (
+                        f"$regPath = 'Registry::{target}'; "
+                        f"$parent = Split-Path -Parent $regPath; "
+                        f"$name = Split-Path -Leaf $regPath; "
+                        f"if (-not (Test-Path $parent)) {{ New-Item -Path $parent -Force | Out-Null }}; "
+                        f"New-ItemProperty -Path $parent -Name $name -Value '{val_text}' -PropertyType String -Force | Out-Null"
+                    )
+                    result = await self.run_process(
+                        "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+                        ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", cmd],
+                        wait=True,
+                        timeout_s=60.0,
+                    )
+                    logger.info(
+                        "[HTTPGuestChannel] apply_mutation REGISTRY SET target=%s rc=%s stdout=%s stderr=%s",
+                        target, result.return_code if result else "N/A", result.stdout if result else "", result.stderr if result else "",
+                    )
+                elif op_upper in ("DELETE", "UNMASK"):
+                    cmd = f"$regPath = 'Registry::{target}'; if (Test-Path $regPath) {{ Remove-ItemProperty -Path (Split-Path -Parent $regPath) -Name (Split-Path -Leaf $regPath) -ErrorAction SilentlyContinue }}"
+                    result = await self.run_process(
+                        "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+                        ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", cmd],
+                        wait=True,
+                        timeout_s=60.0,
+                    )
+                    logger.info(
+                        "[HTTPGuestChannel] apply_mutation REGISTRY DELETE target=%s rc=%s stdout=%s stderr=%s",
+                        target, result.return_code if result else "N/A", result.stdout if result else "", result.stderr if result else "",
+                    )
+            elif "PROCESS" in kind_upper:
+                if op_upper in ("CREATE", "SPAWN", "START"):
+                    cmd = f"Start-Process -FilePath '{target}' -ErrorAction SilentlyContinue"
+                    result = await self.run_process(
+                        "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+                        ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", cmd],
+                        wait=True,
+                        timeout_s=60.0,
+                    )
+                    logger.info(
+                        "[HTTPGuestChannel] apply_mutation PROCESS CREATE target=%s rc=%s stdout=%s stderr=%s",
+                        target, result.return_code if result else "N/A", result.stdout if result else "", result.stderr if result else "",
+                    )
+                elif op_upper in ("TERMINATE", "STOP", "KILL"):
+                    proc_name = target.removesuffix(".exe")
+                    cmd = f"Stop-Process -Name '{proc_name}' -Force -ErrorAction SilentlyContinue"
+                    result = await self.run_process(
+                        "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+                        ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", cmd],
+                        wait=True,
+                        timeout_s=60.0,
+                    )
+                    logger.info(
+                        "[HTTPGuestChannel] apply_mutation PROCESS TERMINATE target=%s rc=%s stdout=%s stderr=%s",
+                        target, result.return_code if result else "N/A", result.stdout if result else "", result.stderr if result else "",
+                    )
+                elif op_upper in ("SET", "RESET"):
+                    # System clock acceleration / time reset lures
+                    logger.info(
+                        "[HTTPGuestChannel] apply_mutation PROCESS %s target=%s (time shift acknowledged)",
+                        op_upper, target,
+                    )
+                    return
+            elif "NETWORK" in kind_upper:
+                # Network-layer mutations (RESPOND, MOUNT, UNMOUNT, etc.) require
+                # host-side network interception (e.g. WinDivert, fake DNS, or a
+                # local proxy) that the guest HTTP agent does not implement.
+                # Raise explicitly so base.py sets status=FAILED and the log shows
+                # a real error rather than silently succeeding as a no-op.
+                raise NotImplementedError(
+                    f"apply_mutation: NETWORK kind operations are not implemented in "
+                    f"HTTPGuestChannel (kind={kind!r}, operation={operation!r}, target={target!r}). "
+                    f"Host-side network interception is required."
+                )
+            else:
+                # Unknown kind: raise rather than silently no-op.
+                raise NotImplementedError(
+                    f"apply_mutation: unrecognised mutation kind {kind!r} "
+                    f"(operation={operation!r}, target={target!r})"
+                )
+
+            if result is None:
+                raise RuntimeError(f"apply_mutation {kind_upper} {op_upper} failed: process start returned no result")
+            if result.return_code != 0:
+                err_msg = result.stderr.strip() or result.stdout.strip()
+                raise RuntimeError(
+                    f"apply_mutation {kind_upper} {op_upper} target={target} failed (rc={result.return_code}): {err_msg}"
+                )
+
+    async def apply_mutation_batch(
+        self,
+        file_creates: list[tuple[str, str | None]],
+        timeout_s: float = 60.0,
+    ) -> None:
+        """
+        Apply multiple FILE CREATE mutations in a single PowerShell invocation.
+
+        Each element of *file_creates* is a ``(target_path, value)`` pair where
+        *value* is the file content (or ``None`` / empty string for an empty file).
+        All files are written by one ``powershell.exe`` process, eliminating the
+        ~11-14 s cold-start cost that would otherwise be paid once per file.
+
+        This is the preferred call site for any primitive that needs to create
+        several files in the same mutation, such as
+        :class:`~adam.deception.primitives.filesystem_lures.PlantDecoyDocuments`.
+
+        Raises
+        ------
+        ValueError
+            If *file_creates* is empty (callers should guard this themselves, but
+            an empty batch is almost certainly a logic error).
+        RuntimeError / GuestAgentError
+            Propagated from :meth:`run_process` on guest-side failure.
+        """
+        if not file_creates:
+            raise ValueError("apply_mutation_batch: file_creates list must not be empty")
+
+        async with self._mutation_lock:
+            stmts: list[str] = []
+            for target, value in file_creates:
+                target_norm = target.replace("/", "\\").replace("'", "''")
+                val_text = (value or "").replace("'", "''")
+                stmts.append(
+                    f"$p = Split-Path -Parent '{target_norm}'; "
+                    f"if (-not (Test-Path $p)) {{ New-Item -ItemType Directory -Force -Path $p | Out-Null }}; "
+                    f"Set-Content -Path '{target_norm}' -Value '{val_text}' -Force"
+                )
+
+            cmd = "; ".join(stmts)
+            result = await self.run_process(
+                "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+                ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", cmd],
+                wait=True,
+                timeout_s=timeout_s,
+            )
+            logger.info(
+                "[HTTPGuestChannel] apply_mutation_batch FILE CREATE count=%d rc=%s stdout=%s stderr=%s",
+                len(file_creates),
+                result.return_code if result else "N/A",
+                result.stdout if result else "",
+                result.stderr if result else "",
+            )
+            if result is None:
+                raise RuntimeError("apply_mutation_batch failed: process start returned no result")
+            if result.return_code != 0:
+                err_msg = result.stderr.strip() or result.stdout.strip()
+                raise RuntimeError(
+                    f"apply_mutation_batch failed (rc={result.return_code}): {err_msg}"
+                )
+
+
 
 def verify_sample_hash(content: bytes, expected_sha256: str) -> bool:
     """Host-side helper mirroring the guest's own upload-time verification -- used by callers before calling /sample/upload, per defense in depth (spec section 10)."""
@@ -708,6 +1145,7 @@ __all__ = [
     "ErrorCode",
     "GuestAgentError",
     "GuestAgentUnreachableError",
+    "StageResult",
     "verify_sample_hash",
     "encode_sample_for_upload",
 ]
