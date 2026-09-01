@@ -94,34 +94,55 @@ function initTabs() {
  */
 function initTelemetryFilters() {
   const filterBtns = document.querySelectorAll('.filter-btn');
-  const feedBox = document.querySelector('.feed-box');
-
-  if (!feedBox) return;
-
-  filterBtns.forEach(btn => {
-    btn.addEventListener('click', () => {
-      const type = btn.dataset.filter;
-      btn.classList.toggle('active');
-      
-      // Toggle CSS class on the feedBox to show/hide items using styling rules
-      feedBox.classList.toggle(`hide-${type}`);
-      
-      // Custom visual update if needed
-      if (btn.classList.contains('active')) {
-        btn.style.opacity = '1';
-      } else {
-        btn.style.opacity = '0.5';
-      }
-    });
-  });
-
-  // Handle feed control buttons
+  const feedBox = document.getElementById('telemetry-feed-container') || document.querySelector('.feed-box');
   const clearBtn = document.getElementById('btn-clear-feed');
-  if (clearBtn) {
-    clearBtn.addEventListener('click', () => {
-      feedBox.innerHTML = '<div class="feed-row system"><span class="feed-row-content">Feed cleared by operator.</span></div>';
+
+  if (!feedBox || filterBtns.length === 0) return;
+
+  const validTypes = ['raw', 'semantic', 'decision', 'mutation'];
+
+  function applyFilterState() {
+    const activeTypes = Array.from(document.querySelectorAll('.filter-btn.active'))
+      .map(b => b.dataset.filter)
+      .filter(t => validTypes.includes(t));
+
+    const allRows = feedBox.querySelectorAll('.feed-row');
+    allRows.forEach(row => {
+      if (activeTypes.length === 0) {
+        row.style.setProperty('display', 'flex', 'important');
+        return;
+      }
+
+      let isMatch = false;
+      for (const type of activeTypes) {
+        if (row.classList.contains(type)) {
+          isMatch = true;
+          break;
+        }
+      }
+      row.style.setProperty('display', isMatch ? 'flex' : 'none', 'important');
     });
   }
+
+  filterBtns.forEach(btn => {
+    btn.onclick = function(e) {
+      e.preventDefault();
+      e.stopPropagation();
+      btn.classList.toggle('active');
+      applyFilterState();
+    };
+  });
+
+  if (clearBtn) {
+    clearBtn.onclick = function(e) {
+      e.preventDefault();
+      e.stopPropagation();
+      filterBtns.forEach(b => b.classList.remove('active'));
+      applyFilterState();
+    };
+  }
+
+  applyFilterState();
 }
 
 /**

@@ -1,0 +1,225 @@
+# Persistence Policy Rules
+- id: RULE-PERSIST-001
+  severity: HIGH
+  rationale: "Registry Run key persistence; observe."
+  when:
+    intent: PERSIST_RUN_KEY
+    confidence_gte: 0.80
+  then:
+    action: NONE
+    action_category: OBSERVE
+    default_verdict: OBSERVE
+    priority: 70
+  budget:
+    max_per_session: 5
+    cooldown_seconds: 15
+
+- id: RULE-PERSIST-002
+  severity: HIGH
+  rationale: "Scheduled task persistence; observe."
+  when:
+    intent: PERSIST_SCHEDULED_TASK
+    confidence_gte: 0.80
+  then:
+    action: NONE
+    action_category: OBSERVE
+    default_verdict: OBSERVE
+    priority: 70
+  budget:
+    max_per_session: 5
+    cooldown_seconds: 15
+
+- id: RULE-PERSIST-003
+  severity: HIGH
+  rationale: "Service persistence; observe."
+  when:
+    intent: PERSIST_SERVICE
+    confidence_gte: 0.80
+  then:
+    action: NONE
+    action_category: OBSERVE
+    default_verdict: OBSERVE
+    priority: 70
+  budget:
+    max_per_session: 5
+    cooldown_seconds: 15
+
+- id: RULE-PERSIST-004
+  severity: HIGH
+  rationale: "WMI subscription persistence; observe."
+  when:
+    intent: PERSIST_WMI_SUBSCRIPTION
+    confidence_gte: 0.80
+  then:
+    action: NONE
+    action_category: OBSERVE
+    default_verdict: OBSERVE
+    priority: 70
+  budget:
+    max_per_session: 5
+    cooldown_seconds: 15
+
+- id: RULE-PERSIST-005
+  severity: MEDIUM
+  rationale: "Startup folder persistence; plant startup decoy artifact."
+  when:
+    intent: PERSIST_STARTUP_FOLDER
+    confidence_gte: 0.75
+  then:
+    action: PLANT_STARTUP_DECOY
+    action_category: MUTATE
+    default_verdict: EXECUTE
+    priority: 75
+  budget:
+    max_per_session: 1
+    cooldown_seconds: 30
+
+- id: RULE-PERSIST-006
+  severity: HIGH
+  rationale: "DLL search order hijacking; observe."
+  when:
+    intent: PERSIST_DLL_SEARCH_ORDER
+    confidence_gte: 0.80
+  then:
+    action: NONE
+    action_category: OBSERVE
+    default_verdict: OBSERVE
+    priority: 70
+  budget:
+    max_per_session: 5
+    cooldown_seconds: 15
+
+- id: RULE-PERSIST-007
+  severity: HIGH
+  rationale: "DLL sideloading attempt; plant decoy DLL target."
+  when:
+    intent: PERSIST_DLL_SIDELOAD
+    confidence_gte: 0.80
+  then:
+    action: PLANT_DECOY_DLL_TARGET
+    action_category: MUTATE
+    default_verdict: EXECUTE
+    priority: 80
+  budget:
+    max_per_session: 1
+    cooldown_seconds: 30
+
+- id: RULE-PERSIST-008
+  severity: HIGH
+  rationale: "BITS job persistence; observe."
+  when:
+    intent: PERSIST_BITS_JOB
+    confidence_gte: 0.80
+  then:
+    action: NONE
+    action_category: OBSERVE
+    default_verdict: OBSERVE
+    priority: 70
+  budget:
+    max_per_session: 5
+    cooldown_seconds: 15
+
+- id: RULE-PERSIST-009
+  severity: HIGH
+  rationale: "Boot execution persistence; observe."
+  when:
+    intent: PERSIST_BOOT_EXECUTION
+    confidence_gte: 0.80
+  then:
+    action: NONE
+    action_category: OBSERVE
+    default_verdict: OBSERVE
+    priority: 70
+  budget:
+    max_per_session: 5
+    cooldown_seconds: 15
+
+- id: RULE-PERSIST-010
+  severity: MEDIUM
+  rationale: "Logon script persistence; plant decoy logon artifact."
+  when:
+    intent: PERSIST_LOGON_SCRIPT
+    confidence_gte: 0.75
+  then:
+    action: PLANT_DECOY_LOGON_ARTIFACT
+    action_category: MUTATE
+    default_verdict: EXECUTE
+    priority: 75
+  budget:
+    max_per_session: 1
+    cooldown_seconds: 30
+
+- id: RULE-PERSIST-011
+  severity: HIGH
+  rationale: "WMI event filter; observe."
+  when:
+    intent: PERSIST_WMI_EVENT_FILTER
+    confidence_gte: 0.80
+  then:
+    action: NONE
+    action_category: OBSERVE
+    default_verdict: OBSERVE
+    priority: 70
+  budget:
+    max_per_session: 5
+    cooldown_seconds: 15
+
+- id: RULE-PERSIST-012
+  severity: HIGH
+  rationale: "Service modification; observe."
+  when:
+    intent: PERSIST_SERVICE_MODIFICATION
+    confidence_gte: 0.80
+  then:
+    action: NONE
+    action_category: OBSERVE
+    default_verdict: OBSERVE
+    priority: 70
+  budget:
+    max_per_session: 5
+    cooldown_seconds: 15
+
+- id: RULE-PERSIST-013
+  severity: HIGH
+  rationale: "COM hijacking; plant decoy COM artifact."
+  when:
+    intent: PERSIST_COM_HIJACK
+    confidence_gte: 0.80
+  then:
+    action: PLANT_DECOY_COM_ARTIFACT
+    action_category: MUTATE
+    default_verdict: EXECUTE
+    priority: 80
+  budget:
+    max_per_session: 1
+    cooldown_seconds: 30
+
+- id: RULE-PERSIST-014
+  severity: HIGH
+  rationale: "IFEO debugger hijacking; observe."
+  when:
+    intent: PERSIST_IFEO
+    confidence_gte: 0.80
+  then:
+    action: NONE
+    action_category: OBSERVE
+    default_verdict: OBSERVE
+    priority: 70
+  budget:
+    max_per_session: 5
+    cooldown_seconds: 15
+
+- id: RULE-PERSIST-015
+  severity: HIGH
+  rationale: "Office add-in persistence; observe."
+  when:
+    intent: PERSIST_OFFICE_ADDIN
+    confidence_gte: 0.80
+  then:
+    action: NONE
+    action_category: OBSERVE
+    default_verdict: OBSERVE
+    priority: 70
+  budget:
+    max_per_session: 5
+    cooldown_seconds: 15

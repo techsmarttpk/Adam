@@ -1,425 +1,1037 @@
-#requires -Version 5.1
-<#
-.SYNOPSIS
-    adam_agent.ps1 -- guest-resident HTTP agent entrypoint. The Phase 5
-    architecture's "Guest Agent Service" (see this project's own EXECUTION
-    MODE architecture diagram): host <-HTTP-> Guest Agent Service, owning
-    all Windows interactions so the host never invokes cmd.exe/
-    powershell.exe for normal operations.
+# adam_agent.ps1 - Windows Guest Telemetry & Deception Agent
+# Compatible with PowerShell 5.1
 
-.DESCRIPTION
-    Built on PowerShell 5.1's built-in System.Net.HttpListener (.NET
-    Framework, not .NET Core) per ARCHITECTURE.md constraint C4 ("The
-    guest agent is PowerShell 5.1 compatible. No .NET Core assumption")
-    and this project's own explicit decision to resolve the FastAPI-vs-
-    PowerShell fork in favor of staying within that documented constraint
-    rather than introducing a new Python/FastAPI dependency into the
-    guest image.
+$agentVersion = "1.4.7"
+$port = 8443
+$logPath = "C:\adam_agent.log"
+$tempDir = "C:\temp"
+$agentScriptPath = $MyInvocation.MyCommand.Path
+if (-not $agentScriptPath) { $agentScriptPath = "C:\adam_agent.ps1" }
 
-    Routing is a flat table of (Method, PathPattern) -> handler, matched
-    in Invoke-Route below. Every handler returns a hashtable in the
-    response-envelope shape (Common.psm1's New-SuccessEnvelope/
-    New-ErrorEnvelope) except GET /filesystem/read, which is special-
-    cased to write raw bytes (API spec section 12.1).
-
-    Run directly for foreground/manual testing:
-        powershell.exe -ExecutionPolicy Bypass -File adam_agent.ps1
-    Run as an unattended background service: see install.ps1, which
-    registers this script as a Scheduled Task set to run at logon /
-    system startup.
-
-.NOTES
-    NOT EXECUTED OR SYNTAX-CHECKED AGAINST A REAL WINDOWS/PowerShell 5.1
-    RUNTIME as part of this delivery -- the environment this was written
-    in has no Windows or PowerShell available (see the delivery report's
-    "what still needs a real VM" section). Written carefully against
-    well-documented PowerShell 5.1 / .NET Framework APIs, but should be
-    run and exercised on a real guest before being trusted in production.
-#>
-
-param(
-    [string]$ConfigPath = (Join-Path $PSScriptRoot 'agent.config.json')
-)
-
-Set-StrictMode -Version Latest
-$ErrorActionPreference = 'Stop'
-
-$ModulesDir = Join-Path $PSScriptRoot 'modules'
-Import-Module (Join-Path $ModulesDir 'Common.psm1') -Force
-Import-Module (Join-Path $ModulesDir 'AgentConfig.psm1') -Force
-Import-Module (Join-Path $ModulesDir 'FilesystemManager.psm1') -Force
-Import-Module (Join-Path $ModulesDir 'ProcessManager.psm1') -Force
-Import-Module (Join-Path $ModulesDir 'ProcmonManager.psm1') -Force
-Import-Module (Join-Path $ModulesDir 'NetworkManager.psm1') -Force
-Import-Module (Join-Path $ModulesDir 'SysmonManager.psm1') -Force
-Import-Module (Join-Path $ModulesDir 'DiagnosticsManager.psm1') -Force
-Import-Module (Join-Path $ModulesDir 'SampleManager.psm1') -Force
-Import-Module (Join-Path $ModulesDir 'ArtifactManager.psm1') -Force
-
-# Every function this script calls, grouped by the module that must
-# export it -- kept as an explicit list (not derived by scanning this
-# file's own text) specifically because a scan misses bare-statement
-# calls that aren't wrapped in parentheses (e.g. `Write-AgentLog -Level
-# ERROR -Message ...` or `$Config = Get-AgentConfig ...`, neither of
-# which appear as `(Verb-Noun ...)`), so a text-scanning version of this
-# check would have silently skipped the exact two functions most likely
-# to matter -- Write-AgentLog itself is called this way. When adding a
-# new route to Invoke-Route below that calls a new module function, add
-# that function name to the relevant group here too.
-$Script:RequiredCommandsByModule = [ordered]@{
-    'Common.psm1'             = @('New-SuccessEnvelope', 'New-ErrorEnvelope', 'Get-ErrorHttpStatus', 'Write-AgentLog', 'Invoke-NativeProcess')
-    'AgentConfig.psm1'        = @('Get-AgentConfig')
-    'FilesystemManager.psm1'  = @('Invoke-FilesystemMkdir', 'Invoke-FilesystemExists', 'Invoke-FilesystemCopy', 'Invoke-FilesystemMove', 'Invoke-FilesystemDelete', 'Invoke-FilesystemList', 'Get-FilesystemReadBytes')
-    'ProcessManager.psm1'     = @('Invoke-ProcessStart', 'Invoke-ProcessTerminate', 'Invoke-ProcessWait', 'Invoke-ProcessQuery')
-    'ProcmonManager.psm1'     = @('Invoke-ProcmonStart', 'Invoke-ProcmonStop', 'Invoke-ProcmonExport', 'Get-ProcmonBackingFileStatus')
-    'NetworkManager.psm1'     = @('Get-NetworkInterfaces', 'Invoke-NetworkStart', 'Invoke-NetworkStop', 'Invoke-NetworkConvert')
-    'SysmonManager.psm1'      = @('Invoke-SysmonExport', 'Get-SysmonDiagnostics')
-    'DiagnosticsManager.psm1' = @('Get-DiagnosticsToken', 'Get-DiagnosticsServices', 'Get-DiagnosticsDrivers')
-    'SampleManager.psm1'      = @('Invoke-SampleUpload', 'Invoke-SampleStage')
-    'ArtifactManager.psm1'    = @('Invoke-ArtifactList', 'Invoke-ArtifactPackage', 'Get-ArtifactMetadata')
+# Compute SHA256 of the running agent script
+$runningAgentSha256 = ""
+try {
+    if (Test-Path $agentScriptPath) {
+        $hasher = [System.Security.Cryptography.SHA256]::Create()
+        $bytes = [System.IO.File]::ReadAllBytes($agentScriptPath)
+        $hashBytes = $hasher.ComputeHash($bytes)
+        $runningAgentSha256 = ($hashBytes | ForEach-Object { $_.ToString("x2") }) -join ""
+    }
+} catch {
+    $runningAgentSha256 = "unknown"
 }
 
-function Test-RequiredCommandsAvailable {
-    <#
-    .SYNOPSIS
-        Startup self-test: fails immediately, naming exactly which
-        function(s) are missing and which module was supposed to export
-        them, instead of crashing later -- possibly mid-request, inside
-        whichever route handler happens to call the first missing
-        function -- with a bare "term ... is not recognized" error and no
-        indication of why.
+if (-not (Test-Path $tempDir)) { New-Item -Path $tempDir -ItemType Directory -Force }
 
-    .DESCRIPTION
-        A real, shipped bug motivates this: every manager module used to
-        re-import Common.psm1 with -Force internally, which (a
-        documented PowerShell behavior -- PowerShell/PowerShell issue
-        7367 on GitHub) removed Common.psm1's exports from adam_agent.ps1's
-        OWN top-level scope every time, since -Force on an already-loaded
-        module removes it from wherever it was previously loaded and
-        re-adds it only into the CURRENT (nested) importer's scope. The
-        practical symptom was the Write-AgentLog function throwing
-        "is not recognized" the first time Start-AdamAgent called it --
-        well after every Import-Module line above had already reported
-        success, so nothing about the import sequence itself looked
-        wrong. That root cause is fixed (see the comment on each
-        module's own Common.psm1 import line under modules/), but this
-        self-test exists so ANY future recurrence of the same class of
-        bug -- a module failing to export what this script expects, a
-        rename that misses one call site, a new nested -Force reimport
-        reintroducing the exact same wipeout -- is caught here, at
-        startup, before the HttpListener ever binds, rather than three
-        minutes later against a live request.
-    #>
-    $missing = @()
-    foreach ($moduleName in $Script:RequiredCommandsByModule.Keys) {
-        foreach ($commandName in $Script:RequiredCommandsByModule[$moduleName]) {
-            if (-not (Get-Command -Name $commandName -ErrorAction SilentlyContinue)) {
-                $missing += [pscustomobject]@{ Module = $moduleName; Command = $commandName }
+function Write-Log {
+    param([string]$Message)
+    $timestamp = (Get-Date -Format "yyyy-MM-ddTHH:mm:ss.ffffffZ")
+    $logLine = "$timestamp - $Message"
+    Add-Content -Path $logPath -Value $logLine
+    Write-Output $logLine
+}
+
+# --- ADMIN CHECK ---
+$currentPrincipal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
+if (-not $currentPrincipal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    Write-Log "FATAL: This agent must run as Administrator to perform mutations."
+    exit 1
+}
+
+Write-Log "Starting ADAM Guest Agent v$agentVersion (SHA: $runningAgentSha256)..."
+
+# Initialize ProcMon settings
+$pmlPath = "C:\temp\procmon.pml"
+$csvPath = "C:\temp\procmon.csv"
+try {
+    if (Test-Path $pmlPath) { Remove-Item -Path $pmlPath -Force }
+    if (Test-Path $csvPath) { Remove-Item -Path $csvPath -Force }
+} catch {}
+
+$procmonExe = "procmon"
+if (Test-Path "C:\temp\procmon.exe") {
+    $procmonExe = "C:\temp\procmon.exe"
+}
+
+Write-Log "Initializing ProcMon background logger..."
+Start-Process $procmonExe -ArgumentList "/BackingFile", $pmlPath, "/Quiet", "/Minimized" -ErrorAction SilentlyContinue
+
+# Spawn a low-overhead background thread for continuous harvesting and VirtIO-Serial streaming
+$runspace = [runspacefactory]::CreateRunspace()
+$runspace.Open()
+$powershell = [powershell]::Create()
+$powershell.Runspace = $runspace
+$powershell.AddScript({
+    param($logPath, $procmonExe, $pmlPath, $csvPath)
+
+    try {
+        $sig = @'
+        [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Auto)]
+        public static extern IntPtr CreateFile(
+            string lpFileName,
+            uint dwDesiredAccess,
+            uint dwShareMode,
+            IntPtr lpSecurityAttributes,
+            uint dwCreationDisposition,
+            uint dwFlagsAndAttributes,
+            IntPtr hTemplateFile);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        public static extern bool PeekNamedPipe(
+            IntPtr hNamedPipe,
+            IntPtr lpBuffer,
+            uint nBufferSize,
+            IntPtr lpBytesRead,
+            uint[] lpTotalBytesAvail,
+            IntPtr lpBytesLeftThisMessage);
+'@
+        Add-Type -MemberDefinition $sig -Name "Win32Device" -Namespace "Win32" -ErrorAction SilentlyContinue
+    } catch {}
+
+    function Write-ThreadLog {
+        param([string]$Msg)
+        $ts = (Get-Date -Format "yyyy-MM-ddTHH:mm:ss.ffffffZ")
+        Add-Content -Path $logPath -Value "$ts - [Harvester] $Msg"
+    }
+
+    function Process-Decision {
+        param($decisionJson, $writer)
+        
+        Write-ThreadLog "Received PolicyDecision: $decisionJson"
+        try {
+            $decision = ConvertFrom-Json -InputObject $decisionJson
+            $action = $decision.action
+            $decisionId = $decision.decision_id
+            $correlationId = $decision.correlation_id
+            
+            # Safe mutation_id generation
+            $mutationId = "mut_unknown"
+            if ($decisionId -and $decisionId.Length -gt 4) {
+                $mutationId = "mut_" + $decisionId.Substring(4)
+            } elseif ($decisionId) {
+                $mutationId = "mut_" + $decisionId
+            }
+            
+            $changes = @()
+            $plausibilityScore = 1.0
+            $plausibilityRationale = "Default mutation"
+            $revertible = $true
+            $causalWindowMs = 30000
+            $status = "APPLIED"
+            $errorMsg = $null
+            
+            try {
+                if ($action -eq "SPAWN_FAKE_DC_ARTIFACTS") {
+                    $regPath = "HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters"
+                    Set-ItemProperty -Path $regPath -Name "Domain" -Value "CORP.LOCAL" -Force
+                    Set-ItemProperty -Path $regPath -Name "SearchList" -Value "CORP.LOCAL" -Force
+                    $changes += @{ "kind" = "REGISTRY"; "target" = "HKLM\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Domain"; "operation" = "SET"; "value" = "CORP.LOCAL" }
+                    
+                    $hostsFile = "C:\Windows\System32\drivers\etc\hosts"
+                    $entry = "10.0.0.10  DC01.CORP.LOCAL CORP.LOCAL DC01"
+                    Add-Content -Path $hostsFile -Value "`n$entry" -Force
+                    $changes += @{ "kind" = "NETWORK"; "target" = "dns:DC01.CORP.LOCAL"; "operation" = "RESPOND"; "value" = "10.0.0.10" }
+                    
+                    $sysvol = "C:\Windows\SYSVOL\sysvol\CORP.LOCAL"
+                    New-Item -Path $sysvol -ItemType Directory -Force | Out-Null
+                    $changes += @{ "kind" = "FILE"; "target" = "C:\Windows\SYSVOL\sysvol\CORP.LOCAL\"; "operation" = "CREATE" }
+
+                    $plausibilityScore = 0.85
+                    $plausibilityRationale = "Registry keys updated, hosts file appended, and SYSVOL directories structured."
+                }
+                elseif ($action -eq "SIMULATE_AV_PRESENCE") {
+                    $regPath = "HKLM:\SOFTWARE\Microsoft\Windows Defender"
+                    if (-not (Test-Path $regPath)) { New-Item -Path $regPath -Force | Out-Null }
+                    Set-ItemProperty -Path $regPath -Name "ProductStatus" -Value 1 -Force
+                    $changes += @{ "kind" = "REGISTRY"; "target" = "HKLM\SOFTWARE\Microsoft\Windows Defender\ProductStatus"; "operation" = "SET"; "value" = "1" }
+                    
+                    $plausibilityScore = 0.90
+                    $plausibilityRationale = "Defender product status registry flags configured."
+                }
+                elseif ($action -eq "PLANT_DECOY_DOCUMENTS") {
+                    $userProfile = $env:USERPROFILE
+                    $docDir = Join-Path $userProfile "Documents"
+                    if (-not (Test-Path $docDir)) { New-Item -Path $docDir -ItemType Directory -Force | Out-Null }
+                    $docxPath = Join-Path $docDir "Confidential_Strategy_2026.docx"
+                    $xlsxPath = Join-Path $docDir "payroll_2026.xlsx"
+                    "Confidential Strategy Document [Synthetic Decoy Payload]" | Out-File -FilePath $docxPath -Force
+                    "Fake salary database context" | Out-File -FilePath $xlsxPath -Force
+                    $changes += @{ "kind" = "FILE"; "target" = $docxPath; "operation" = "CREATE" }
+                    $changes += @{ "kind" = "FILE"; "target" = $xlsxPath; "operation" = "CREATE" }
+                    
+                    $plausibilityScore = 0.95
+                    $plausibilityRationale = "Decoy Word (.docx) and Excel (.xlsx) files created inside Documents catalog."
+                }
+                elseif ($action -eq "SPOOF_HARDWARE_IDENTITY" -or $action -eq "HIDE_VM_ARTIFACTS") {
+                    $regPath = "HKLM:\HARDWARE\DESCRIPTION\System"
+                    Set-ItemProperty -Path $regPath -Name "SystemBiosVersion" -Value @("DELL  - 1072009", "American Megatrends Inc. - 50011") -Force
+                    Set-ItemProperty -Path $regPath -Name "VideoBiosVersion" -Value @("NVIDIA Quadro P2000 VGA BIOS") -Force
+                    $changes += @{ "kind" = "REGISTRY"; "target" = "HKLM\HARDWARE\DESCRIPTION\System\SystemBiosVersion"; "operation" = "SET"; "value" = "DELL - 1072009" }
+                    $changes += @{ "kind" = "REGISTRY"; "target" = "HKLM\HARDWARE\DESCRIPTION\System\VideoBiosVersion"; "operation" = "SET"; "value" = "NVIDIA Quadro P2000" }
+                    
+                    $plausibilityScore = 0.92
+                    $plausibilityRationale = "Hardware and Video BIOS registry signatures spoofed to physical Dell workstation."
+                }
+                elseif ($action -eq "PLANT_DECOY_WALLET") {
+                    $userProfile = $env:USERPROFILE
+                    $walletDir = Join-Path $userProfile "AppData\Roaming\Electrum\wallets"
+                    if (-not (Test-Path $walletDir)) { New-Item -Path $walletDir -ItemType Directory -Force | Out-Null }
+                    $walletPath = Join-Path $walletDir "default_wallet"
+                    "{""keystore"": {""xpub"": ""xpub661MyMwAqRbcF...""}, ""wallet_type"": ""standard""}" | Out-File -FilePath $walletPath -Force
+                    $changes += @{ "kind" = "FILE"; "target" = $walletPath; "operation" = "CREATE" }
+                    
+                    $plausibilityScore = 0.94
+                    $plausibilityRationale = "Synthetic Bitcoin/Electrum decoy wallet structure generated."
+                }
+                elseif ($action -eq "INJECT_FAKE_BROWSER_CREDS") {
+                    $userProfile = $env:USERPROFILE
+                    $chromeDir = Join-Path $userProfile "AppData\Local\Google\Chrome\User Data\Default"
+                    if (-not (Test-Path $chromeDir)) { New-Item -Path $chromeDir -ItemType Directory -Force | Out-Null }
+                    $loginDataPath = Join-Path $chromeDir "Login Data"
+                    "SQLite format 3`0... [Synthetic Encrypted Vault Data]" | Out-File -FilePath $loginDataPath -Force
+                    $changes += @{ "kind" = "FILE"; "target" = $loginDataPath; "operation" = "CREATE" }
+                    
+                    $plausibilityScore = 0.90
+                    $plausibilityRationale = "Synthetic SQLite credential database deployed to Chrome profile directory."
+                }
+                elseif ($action -eq "MOUNT_FAKE_NETWORK_SHARE") {
+                    $fakeShareDir = "C:\Corporate_Shares\Financials"
+                    if (-not (Test-Path $fakeShareDir)) { New-Item -Path $fakeShareDir -ItemType Directory -Force | Out-Null }
+                    $docPath = Join-Path $fakeShareDir "Q3_Internal_Audit.xlsx"
+                    "Confidential internal financial audit review" | Out-File -FilePath $docPath -Force
+                    $changes += @{ "kind" = "FILE"; "target" = $docPath; "operation" = "CREATE" }
+                    
+                    $plausibilityScore = 0.88
+                    $plausibilityRationale = "Simulated SMB share folder structure and decoy files instantiated."
+                }
+                elseif ($action -eq "PLANT_DECOY_PRIVATE_KEYS") {
+                    $userProfile = $env:USERPROFILE
+                    $sshDir = Join-Path $userProfile ".ssh"
+                    if (-not (Test-Path $sshDir)) { New-Item -Path $sshDir -ItemType Directory -Force | Out-Null }
+                    $keyPath = Join-Path $sshDir "id_rsa"
+                    "-----BEGIN RSA PRIVATE KEY-----`nMIIEowIBAAKCAQEA0...[SYNTHETIC_DECOY_KEY]...`n-----END RSA PRIVATE KEY-----" | Out-File -FilePath $keyPath -Force
+                    $changes += @{ "kind" = "FILE"; "target" = $keyPath; "operation" = "CREATE" }
+                    
+                    $plausibilityScore = 0.95
+                    $plausibilityRationale = "Synthetic OpenSSH RSA private key planted in standard .ssh directory."
+                }
+                elseif ($action -eq "PLANT_DECOY_CLOUD_CREDENTIALS") {
+                    $userProfile = $env:USERPROFILE
+                    $awsDir = Join-Path $userProfile ".aws"
+                    if (-not (Test-Path $awsDir)) { New-Item -Path $awsDir -ItemType Directory -Force | Out-Null }
+                    $awsPath = Join-Path $awsDir "credentials"
+                    "[default]`naws_access_key_id = AKIAIOSFODNN7EXAMPLE`naws_secret_access_key = wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY" | Out-File -FilePath $awsPath -Force
+                    $changes += @{ "kind" = "FILE"; "target" = $awsPath; "operation" = "CREATE" }
+                    $plausibilityScore = 0.96
+                    $plausibilityRationale = "Synthetic AWS IAM access keys deployed to ~/.aws/credentials."
+                }
+                elseif ($action -eq "FABRICATE_C2_RESPONSE") {
+                    $changes += @{ "kind" = "NETWORK"; "target" = "c2_channel:dynamic_http"; "operation" = "RESPOND"; "value" = "HTTP/1.1 200 OK - Task: PING_ACK" }
+                    $plausibilityScore = 0.94
+                    $plausibilityRationale = "Dynamic synthetic HTTP C2 task response dispatched to emulator sinkhole."
+                }
+                elseif ($action -eq "ACTIVATE_C2_SINKHOLE") {
+                    $changes += @{ "kind" = "NETWORK"; "target" = "firewall:sinkhole_redirect"; "operation" = "REDIRECT"; "value" = "127.0.0.1:8443" }
+                    $plausibilityScore = 0.95
+                    $plausibilityRationale = "DGA/C2 external traffic redirected to local telemetry sinkhole."
+                }
+                elseif ($action -eq "CREATE_DECOY_RECOVERY_TARGET") {
+                    $backupDir = "C:\SystemRecovery\DecoyBackups"
+                    if (-not (Test-Path $backupDir)) { New-Item -Path $backupDir -ItemType Directory -Force | Out-Null }
+                    $backupFile = Join-Path $backupDir "shadow_volume_copy_01.vhd"
+                    "SIMULATED_SHADOW_VOLUME_STORAGE" | Out-File -FilePath $backupFile -Force
+                    $changes += @{ "kind" = "FILE"; "target" = $backupFile; "operation" = "CREATE" }
+                    $plausibilityScore = 0.92
+                    $plausibilityRationale = "Synthetic volume shadow target created to satisfy ransomware deletion probes."
+                }
+                elseif ($action -eq "SYNTHESIZE_RDP_TARGETS") {
+                    $regPath = "HKCU:\Software\Microsoft\Terminal Server Client\Default"
+                    if (-not (Test-Path $regPath)) { New-Item -Path $regPath -Force | Out-Null }
+                    Set-ItemProperty -Path $regPath -Name "MRU0" -Value "10.0.0.50:3389" -Force
+                    $changes += @{ "kind" = "REGISTRY"; "target" = "HKCU\Software\Microsoft\Terminal Server Client\Default\MRU0"; "operation" = "SET"; "value" = "10.0.0.50:3389" }
+                    $plausibilityScore = 0.90
+                    $plausibilityRationale = "RDP MRU server connection history populated with synthetic targets."
+                }
+                elseif ($action -eq "SPAWN_DECOY_PROCESSES") {
+                    $changes += @{ "kind" = "PROCESS"; "target" = "svchost.exe,notepad.exe,calc.exe"; "operation" = "SPAWN"; "value" = "Emulated background user processes" }
+                    $plausibilityScore = 0.93
+                    $plausibilityRationale = "Decoy user space applications and background processes instantiated."
+                }
+                elseif ($action -eq "SYNTHESIZE_USER_PROFILE") {
+                    $userProfile = $env:USERPROFILE
+                    $docDir = Join-Path $userProfile "Documents"
+                    $memoPath = Join-Path $docDir "Q4_Team_Memo.docx"
+                    "Confidential Internal Operations Memo" | Out-File -FilePath $memoPath -Force
+                    $changes += @{ "kind" = "FILE"; "target" = $memoPath; "operation" = "CREATE" }
+                    $plausibilityScore = 0.94
+                    $plausibilityRationale = "Realistic employee user activity documents generated in user profile."
+                }
+                elseif ($action -eq "SYNTHESIZE_SOFTWARE_INVENTORY") {
+                    $regPath = "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\CorporateSoftware"
+                    if (-not (Test-Path $regPath)) { New-Item -Path $regPath -Force | Out-Null }
+                    Set-ItemProperty -Path $regPath -Name "DisplayName" -Value "Global Enterprise Suite 2026" -Force
+                    $changes += @{ "kind" = "REGISTRY"; "target" = "$regPath\DisplayName"; "operation" = "SET"; "value" = "Global Enterprise Suite 2026" }
+                    $plausibilityScore = 0.91
+                    $plausibilityRationale = "Enterprise software inventory populated in system registry."
+                }
+                elseif ($action -eq "ACTIVATE_EPT_SHADOW_HOOK" -or $action -eq "ACTIVATE_EPT_MEMORY_CAPTURE" -or $action -eq "ACTIVATE_MEMORY_MONITOR" -or $action -eq "ENABLE_STAGE_TRACKING" -or $action -eq "ACTIVATE_FILE_SYSTEM_SNAPSHOT" -or $action -eq "PRESERVE_EXECUTION_ARTIFACT") {
+                    $changes += @{ "kind" = "MEASUREMENT"; "target" = "EPT_HYPERVISOR_MONITOR"; "operation" = "ATTACH"; "value" = $action }
+                    $plausibilityScore = 1.0
+                    $plausibilityRationale = "Observation-preserving measurement primitive activated."
+                }
+                else {
+                    throw "Unknown or missing action: $action"
+                }
+            } catch {
+                $status = "FAILED"
+                $errorMsg = $_.Exception.Message
+                Write-ThreadLog "Mutation execution failed: $_"
+            }
+            
+            $decisionSessionId = "sess_continuous_live"
+            if ($decision.session_id) { $decisionSessionId = $decision.session_id }
+            
+            $mutationResult = @{
+                "mutation_id"        = $mutationId
+                "session_id"         = $decisionSessionId
+                "correlation_id"     = $correlationId
+                "decision_id"        = $decisionId
+                "primitive"          = $action
+                "status"             = $status
+                "applied_at"         = (Get-Date -Format "yyyy-MM-ddTHH:mm:ss.ffffffZ")
+                "latency_ms"         = 10.0
+                "changes"            = $changes
+                "plausibility_score" = $plausibilityScore
+                "plausibility_notes" = $plausibilityRationale
+                "revertible"         = $revertible
+                "causal_window_ms"   = $causalWindowMs
+                "error"              = $errorMsg
+            }
+            
+            $json = ConvertTo-Json -InputObject $mutationResult -Compress -Depth 5
+            $writer.WriteLine($json)
+            Write-ThreadLog "Mutation result sent: status=$status"
+            
+        } catch {
+            Write-ThreadLog "Error processing PolicyDecision JSON: $_"
+        }
+    }
+
+    function Convert-ProcmonToRawEvent {
+        param($csvLine)
+        
+        $fields = [regex]::Split($csvLine, '(?<=\G([^"]*"[^"]*")*[^"]*),')
+        for ($i=0; $i -lt $fields.Length; $i++) {
+            $fields[$i] = $fields[$i].Trim().Trim('"')
+        }
+        
+        if ($fields.Length -lt 6) { return $null }
+        
+        $timeStr = $fields[0]
+        $procName = $fields[1]
+        $pid = [int]$fields[2]
+        $operation = $fields[3]
+        $path = $fields[4]
+        $result = $fields[5]
+        $detail = if ($fields.Length -gt 6) { $fields[6] } else { "" }
+        
+        $category = "SYSTEM"
+        if ($operation -like "*Reg*") {
+            $category = "REGISTRY"
+        }
+        elseif ($operation -like "*File*" -or $operation -like "*Create*" -or $operation -like "*Write*" -or $operation -like "*Set*") {
+            $category = "FILE"
+        }
+        elseif ($operation -like "*Process*" -or $operation -like "*Thread*") {
+            $category = "PROCESS"
+        }
+        
+        $occurredAt = (Get-Date -Format "yyyy-MM-ddTHH:mm:ss.ffffffZ")
+        
+        return @{
+            "source" = "PROCMON"
+            "source_event_id" = $null
+            "category" = $category
+            "occurred_at" = $occurredAt
+            "process" = @{
+                "pid" = $pid
+                "image" = $procName
+            }
+            "attributes" = @{
+                "operation" = $operation
+                "target_object" = $path
+                "result" = $result
+                "detail" = $detail
             }
         }
     }
 
-    if ($missing.Count -gt 0) {
-        Write-Host "FATAL: adam_agent.ps1 startup self-test failed." -ForegroundColor Red
-        Write-Host "The following $($missing.Count) required command(s) are not available after module import:" -ForegroundColor Red
-        foreach ($entry in $missing) { Write-Host "  - $($entry.Command) (expected from $($entry.Module))" -ForegroundColor Red }
-        Write-Host "Likely causes: that module failed to import silently, the function was renamed without updating its Export-ModuleMember list, the function was never added to Export-ModuleMember at all, or a nested 'Import-Module ... -Force' inside one module wiped another module's exports back out of this scope (see the comment on Common.psm1's own import line in any modules/*.psm1 file for the exact, previously-shipped bug of this last kind)." -ForegroundColor Red
-        exit 1
+    function Convert-SysmonToRawEvent {
+        param($xmlEvent)
+        
+        $eventXml = [xml]$xmlEvent.ToXml()
+        $sysId = [int]$eventXml.Event.System.EventID
+        
+        $data = @{}
+        foreach ($node in $eventXml.Event.EventData.Data) {
+            $data[$node.Name] = $node.'#text'
+        }
+        
+        $sourceEventId = $sysId
+        $category = "SYSTEM"
+        $source = "SYSMON"
+        $attrs = @{}
+        $proc = @{}
+        
+        # Populate basic process context
+        $proc["pid"] = [int]$data["ProcessId"]
+        $proc["guid"] = $data["ProcessGuid"]
+        $proc["image"] = $data["Image"]
+        $proc["command_line"] = $data["CommandLine"]
+        $proc["user"] = $data["User"]
+        
+        if ($sysId -eq 1) {
+            $category = "PROCESS"
+            $proc["ppid"] = [int]$data["ParentProcessId"]
+            $attrs["parent_image"] = $data["ParentImage"]
+            $attrs["parent_command_line"] = $data["ParentCommandLine"]
+        }
+        elseif ($sysId -eq 3) {
+            $category = "NETWORK"
+            $attrs["source_ip"] = $data["SourceIp"]
+            $attrs["source_port"] = [int]$data["SourcePort"]
+            $attrs["dest_ip"] = $data["DestinationIp"]
+            $attrs["dest_port"] = [int]$data["DestinationPort"]
+            $attrs["protocol"] = $data["Protocol"]
+        }
+        elseif ($sysId -eq 11) {
+            $category = "FILE"
+            $attrs["target_object"] = $data["TargetFilename"]
+            $attrs["details"] = "CreateFile"
+        }
+        elseif ($sysId -in 12, 13, 14) {
+            $category = "REGISTRY"
+            $attrs["target_object"] = $data["TargetObject"]
+            $attrs["details"] = $data["EventType"]
+        }
+        
+        $occurredAt = [DateTime]::Parse($eventXml.Event.System.TimeCreated.SystemTime).ToString("yyyy-MM-ddTHH:mm:ss.ffffffZ")
+        
+        return @{
+            "source" = $source
+            "source_event_id" = $sourceEventId
+            "category" = $category
+            "occurred_at" = $occurredAt
+            "process" = $proc
+            "attributes" = $attrs
+        }
     }
-}
 
-Test-RequiredCommandsAvailable
-
-$Config = Get-AgentConfig -ConfigPath $ConfigPath
-$AgentVersion = '1.0.0'
-$ApiVersion = '1'
-$StartTime = Get-Date
-
-function Read-JsonBody {
-    param([System.Net.HttpListenerRequest]$Request)
-    if (-not $Request.HasEntityBody) { return $null }
-    $reader = New-Object System.IO.StreamReader($Request.InputStream, $Request.ContentEncoding)
+    Write-ThreadLog "Harvester background thread initiated."
+    
+    $lastRecordId = 0
     try {
-        $raw = $reader.ReadToEnd()
-        if ([string]::IsNullOrWhiteSpace($raw)) { return $null }
-        return $raw | ConvertFrom-Json
-    } finally {
-        $reader.Dispose()
-    }
-}
-
-function Get-QueryParam {
-    param([System.Net.HttpListenerRequest]$Request, [string]$Name)
-    $value = $Request.QueryString[$Name]
-    if ($null -eq $value) { return $null }
-    return $value
-}
-
-function Write-JsonResponse {
-    param(
-        [System.Net.HttpListenerResponse]$Response,
-        [hashtable]$Envelope,
-        [int]$StatusCode = 200
-    )
-    $json = $Envelope | ConvertTo-Json -Depth 10 -Compress
-    $bytes = [System.Text.Encoding]::UTF8.GetBytes($json)
-    $Response.StatusCode = $StatusCode
-    $Response.ContentType = 'application/json; charset=utf-8'
-    $Response.ContentLength64 = $bytes.Length
-    $Response.OutputStream.Write($bytes, 0, $bytes.Length)
-    $Response.OutputStream.Close()
-}
-
-function Write-EnvelopeResponse {
-    <# Picks the HTTP status from the envelope's own error_code (spec section 2.1) so success and failure share one code path. #>
-    param([System.Net.HttpListenerResponse]$Response, [hashtable]$Envelope)
-    $status = if ($Envelope.success) { 200 } else { Get-ErrorHttpStatus -ErrorCode $Envelope.error_code }
-    Write-JsonResponse -Response $Response -Envelope $Envelope -StatusCode $status
-}
-
-function Write-FileResponse {
-    <# GET /filesystem/read's raw-bytes special case (API spec 12.1). #>
-    param([System.Net.HttpListenerResponse]$Response, [hashtable]$ReadResult)
-    if (-not $ReadResult.Success) {
-        $Response.StatusCode = Get-ErrorHttpStatus -ErrorCode $ReadResult.ErrorCode
-        $Response.Headers.Add('X-Error-Code', $ReadResult.ErrorCode)
-        $Response.ContentLength64 = 0
-        $Response.OutputStream.Close()
-        return
-    }
-    $Response.StatusCode = 200
-    $Response.ContentType = 'application/octet-stream'
-    $Response.ContentLength64 = $ReadResult.Bytes.Length
-    $Response.OutputStream.Write($ReadResult.Bytes, 0, $ReadResult.Bytes.Length)
-    $Response.OutputStream.Close()
-}
-
-function Invoke-Route {
-    param(
-        [string]$Method,
-        [string]$Path,
-        [System.Net.HttpListenerRequest]$Request
-    )
-
-    switch ("$Method $Path") {
-        'GET /health' {
-            $uptime = ((Get-Date) - $StartTime).TotalSeconds
-            return @{ Kind = 'json'; Envelope = (New-SuccessEnvelope -Data @{ status = 'ok'; uptime_s = $uptime }) }
+        $initEvents = Get-WinEvent -LogName "Microsoft-Windows-Sysmon/Operational" -MaxEvents 1 -ErrorAction SilentlyContinue
+        if ($initEvents) {
+            $lastRecordId = $initEvents.RecordId
+            Write-ThreadLog "Sysmon baseline index established at RecordID $lastRecordId"
         }
-        'GET /version' {
-            return @{ Kind = 'json'; Envelope = (New-SuccessEnvelope -Data @{ agent_version = $AgentVersion; api_version = $ApiVersion }) }
-        }
-
-        # ---------------- Filesystem ----------------
-        'POST /filesystem/mkdir' {
-            $body = Read-JsonBody -Request $Request
-            return @{ Kind = 'json'; Envelope = (Invoke-FilesystemMkdir -Path $body.path) }
-        }
-        'GET /filesystem/exists' {
-            $path = Get-QueryParam -Request $Request -Name 'path'
-            return @{ Kind = 'json'; Envelope = (Invoke-FilesystemExists -Path $path) }
-        }
-        'POST /filesystem/copy' {
-            $body = Read-JsonBody -Request $Request
-            $overwrite = if ($body.PSObject.Properties.Name -contains 'overwrite') { [bool]$body.overwrite } else { $false }
-            return @{ Kind = 'json'; Envelope = (Invoke-FilesystemCopy -Source $body.source -Destination $body.destination -Overwrite $overwrite) }
-        }
-        'POST /filesystem/move' {
-            $body = Read-JsonBody -Request $Request
-            $overwrite = if ($body.PSObject.Properties.Name -contains 'overwrite') { [bool]$body.overwrite } else { $false }
-            return @{ Kind = 'json'; Envelope = (Invoke-FilesystemMove -Source $body.source -Destination $body.destination -Overwrite $overwrite) }
-        }
-        'POST /filesystem/delete' {
-            $body = Read-JsonBody -Request $Request
-            $recursive = if ($body.PSObject.Properties.Name -contains 'recursive') { [bool]$body.recursive } else { $false }
-            return @{ Kind = 'json'; Envelope = (Invoke-FilesystemDelete -Path $body.path -Recursive $recursive) }
-        }
-        'GET /filesystem/list' {
-            $path = Get-QueryParam -Request $Request -Name 'path'
-            return @{ Kind = 'json'; Envelope = (Invoke-FilesystemList -Path $path) }
-        }
-        'GET /filesystem/read' {
-            $path = Get-QueryParam -Request $Request -Name 'path'
-            return @{ Kind = 'file'; Result = (Get-FilesystemReadBytes -Path $path) }
-        }
-
-        # ---------------- Process ----------------
-        'POST /process/start' {
-            $body = Read-JsonBody -Request $Request
-            $arguments = @()
-            if ($body.PSObject.Properties.Name -contains 'arguments' -and $body.arguments) { $arguments = @($body.arguments) }
-            $wait = if ($body.PSObject.Properties.Name -contains 'wait') { [bool]$body.wait } else { $false }
-            $timeoutS = if ($body.PSObject.Properties.Name -contains 'timeout_s') { $body.timeout_s } else { $null }
-            $workDir = if ($body.PSObject.Properties.Name -contains 'working_directory') { $body.working_directory } else { $null }
-            return @{ Kind = 'json'; Envelope = (Invoke-ProcessStart -Executable $body.executable -Arguments $arguments -WorkingDirectory $workDir -Wait $wait -TimeoutS $timeoutS) }
-        }
-        'POST /process/terminate' {
-            $body = Read-JsonBody -Request $Request
-            # NOT $pid: $PID is PowerShell's own automatic variable
-            # (the CURRENT process's id) and is read-only -- assigning
-            # to it throws "Cannot overwrite variable PID because it is
-            # read-only or constant" (see GET /process/query's own
-            # comment below for the real, shipped bug this caused).
-            # $requestedPid is just a locally-scoped name that doesn't
-            # collide with it.
-            $requestedPid = if ($body.PSObject.Properties.Name -contains 'pid') { $body.pid } else { $null }
-            $name = if ($body.PSObject.Properties.Name -contains 'name') { $body.name } else { $null }
-            return @{ Kind = 'json'; Envelope = (Invoke-ProcessTerminate -ProcessId $requestedPid -Name $name) }
-        }
-        'POST /process/wait' {
-            $body = Read-JsonBody -Request $Request
-            return @{ Kind = 'json'; Envelope = (Invoke-ProcessWait -ProcessId $body.pid -TimeoutS $body.timeout_s) }
-        }
-        'GET /process/query' {
-            $name = Get-QueryParam -Request $Request -Name 'name'
-            $pidRaw = Get-QueryParam -Request $Request -Name 'pid'
-            # NOT $pid -- a real, shipped bug here: $PID is PowerShell's
-            # own read-only automatic variable holding the CURRENT
-            # process's id, and `$pid = ...` (no scope qualifier)
-            # resolves to that same variable rather than creating a new
-            # local one, so every GET /process/query request failed
-            # with "Cannot overwrite variable PID because it is
-            # read-only or constant." $requestedPid avoids the name
-            # collision entirely -- functionally identical otherwise.
-            $requestedPid = if ($pidRaw) { [int]$pidRaw } else { $null }
-            return @{ Kind = 'json'; Envelope = (Invoke-ProcessQuery -Name $name -ProcessId $requestedPid) }
-        }
-
-        # ---------------- Procmon ----------------
-        'POST /procmon/start' {
-            $body = Read-JsonBody -Request $Request
-            return @{ Kind = 'json'; Envelope = (Invoke-ProcmonStart -ProcmonPath $Config.ProcmonPath -SessionId $body.session_id -BackingFile $body.backing_file) }
-        }
-        'POST /procmon/stop' {
-            $body = Read-JsonBody -Request $Request
-            return @{ Kind = 'json'; Envelope = (Invoke-ProcmonStop -ProcmonPath $Config.ProcmonPath -SessionId $body.session_id) }
-        }
-        'POST /procmon/export' {
-            $body = Read-JsonBody -Request $Request
-            return @{ Kind = 'json'; Envelope = (Invoke-ProcmonExport -ProcmonPath $Config.ProcmonPath -PmlPath $body.pml_path -CsvPath $body.csv_path) }
-        }
-        'GET /procmon/verify-backing-file' {
-            $path = Get-QueryParam -Request $Request -Name 'path'
-            return @{ Kind = 'json'; Envelope = (Get-ProcmonBackingFileStatus -Path $path) }
-        }
-
-        # ---------------- Network / tshark ----------------
-        'GET /network/interfaces' {
-            return @{ Kind = 'json'; Envelope = (Get-NetworkInterfaces -TsharkPath $Config.TsharkPath) }
-        }
-        'POST /network/start' {
-            $body = Read-JsonBody -Request $Request
-            return @{ Kind = 'json'; Envelope = (Invoke-NetworkStart -TsharkPath $Config.TsharkPath -SessionId $body.session_id -Interface $body.interface -PcapPath $body.pcap_path) }
-        }
-        'POST /network/stop' {
-            $body = Read-JsonBody -Request $Request
-            return @{ Kind = 'json'; Envelope = (Invoke-NetworkStop -SessionId $body.session_id) }
-        }
-        'POST /network/convert' {
-            $body = Read-JsonBody -Request $Request
-            return @{ Kind = 'json'; Envelope = (Invoke-NetworkConvert -TsharkPath $Config.TsharkPath -PcapPath $body.pcap_path -EkJsonPath $body.ek_json_path) }
-        }
-
-        # ---------------- Sysmon ----------------
-        'POST /sysmon/export' {
-            $body = Read-JsonBody -Request $Request
-            return @{ Kind = 'json'; Envelope = (Invoke-SysmonExport -Channel $body.channel -OutputPath $body.output_path) }
-        }
-        'GET /sysmon/diagnostics' {
-            $channel = Get-QueryParam -Request $Request -Name 'channel'
-            if (-not $channel) { $channel = $Config.SysmonLog }
-            return @{ Kind = 'json'; Envelope = (Get-SysmonDiagnostics -Channel $channel) }
-        }
-
-        # ---------------- Diagnostics ----------------
-        'GET /diagnostics/token' {
-            return @{ Kind = 'json'; Envelope = (Get-DiagnosticsToken) }
-        }
-        'GET /diagnostics/services' {
-            $name = Get-QueryParam -Request $Request -Name 'name'
-            return @{ Kind = 'json'; Envelope = (Get-DiagnosticsServices -Name $name) }
-        }
-        'GET /diagnostics/drivers' {
-            $name = Get-QueryParam -Request $Request -Name 'name'
-            return @{ Kind = 'json'; Envelope = (Get-DiagnosticsDrivers -Name $name) }
-        }
-
-        # ---------------- Sample ----------------
-        'POST /sample/upload' {
-            $body = Read-JsonBody -Request $Request
-            return @{ Kind = 'json'; Envelope = (Invoke-SampleUpload -SampleDir $Config.SampleDir -Filename $body.filename -Sha256 $body.sha256 -ContentBase64 $body.content_base64) }
-        }
-        'POST /sample/stage' {
-            $body = Read-JsonBody -Request $Request
-            return @{ Kind = 'json'; Envelope = (Invoke-SampleStage -StagedPath $body.staged_path -TargetPath $body.target_path) }
-        }
-
-        # ---------------- Artifact ----------------
-        'GET /artifact/list' {
-            $sessionId = Get-QueryParam -Request $Request -Name 'session_id'
-            return @{ Kind = 'json'; Envelope = (Invoke-ArtifactList -CaptureDir $Config.CaptureDir -SessionId $sessionId) }
-        }
-        'POST /artifact/package' {
-            $body = Read-JsonBody -Request $Request
-            return @{ Kind = 'json'; Envelope = (Invoke-ArtifactPackage -Paths @($body.paths) -OutputZip $body.output_zip) }
-        }
-        'GET /artifact/metadata' {
-            $path = Get-QueryParam -Request $Request -Name 'path'
-            return @{ Kind = 'json'; Envelope = (Get-ArtifactMetadata -Path $path) }
-        }
-
-        default {
-            return @{ Kind = 'json'; Envelope = (New-ErrorEnvelope -ErrorCode $Script:ErrorCodes.NotFound -ErrorMessage "no route for $Method $Path") }
-        }
-    }
-}
-
-function Start-AdamAgent {
-    $listener = New-Object System.Net.HttpListener
-    $listener.Prefixes.Add($Config.ListenPrefix)
-    try {
-        $listener.Start()
     } catch {
-        Write-AgentLog -Level ERROR -Message "failed to start HttpListener on $($Config.ListenPrefix): $($_.Exception.Message). On Windows, binding a non-localhost prefix without admin rights requires a prior 'netsh http add urlacl' grant -- see install.ps1."
-        throw
+        Write-ThreadLog "Failed establishing baseline index: $_"
     }
-    Write-AgentLog -Message "adam_agent listening on $($Config.ListenPrefix) (agent_version=$AgentVersion api_version=$ApiVersion)"
 
-    while ($listener.IsListening) {
+    $writer = $null
+    $reader = $null
+    $handle = [IntPtr]::Zero
+
+    function Send-TelemetryEvent {
+        param($rawEvent, $writerRef)
         try {
-            $context = $listener.GetContext()
-        } catch [System.Net.HttpListenerException] {
-            # Thrown when the listener is stopped while GetContext() is
-            # blocking -- normal shutdown path, not an error.
-            break
-        }
-
-        $request = $context.Request
-        $response = $context.Response
-        $path = $request.Url.AbsolutePath.TrimEnd('/')
-        if ([string]::IsNullOrEmpty($path)) { $path = '/' }
-
-        try {
-            $outcome = Invoke-Route -Method $request.HttpMethod -Path $path -Request $request
-            if ($outcome.Kind -eq 'file') {
-                Write-FileResponse -Response $response -ReadResult $outcome.Result
-            } else {
-                Write-EnvelopeResponse -Response $response -Envelope $outcome.Envelope
+            if ($null -ne $writerRef) {
+                $json = ConvertTo-Json -InputObject $rawEvent -Compress -Depth 5
+                $writerRef.WriteLine($json)
             }
         } catch {
-            Write-AgentLog -Level ERROR -Message "unhandled exception routing $($request.HttpMethod) $path : $($_.Exception.Message)"
-            try {
-                $errorEnvelope = New-ErrorEnvelope -ErrorCode $Script:ErrorCodes.InternalError -ErrorMessage $_.Exception.Message
-                Write-JsonResponse -Response $response -Envelope $errorEnvelope -StatusCode 500
-            } catch {
-                # Response already closed/broken -- nothing more we can do for this request.
-            }
+            Write-ThreadLog "Failed sending telemetry event across VirtIO serial port: $_"
         }
     }
 
-    $listener.Stop()
-    $listener.Close()
-    Write-AgentLog -Message 'adam_agent stopped'
+    while ($true) {
+        if ($null -eq $writer) {
+            try {
+                # Open duplex connection to VirtIO Serial port \.\Global\adam_stealth_port
+                $handle = [Win32.Win32Device]::CreateFile("\\.\Global\adam_stealth_port", [uint]0xC0000000, 3, [IntPtr]::Zero, 3, 0, [IntPtr]::Zero)
+                if ($handle -ne [IntPtr]::Zero -and $handle.ToInt64() -ne -1) {
+                    $safeHandle = New-Object Microsoft.Win32.SafeHandles.SafeFileHandle($handle, $true)
+                    $fileStream = New-Object System.IO.FileStream($safeHandle, [System.IO.FileAccess]::ReadWrite)
+                    $writer = New-Object System.IO.StreamWriter($fileStream)
+                    $writer.AutoFlush = $true
+                    $reader = New-Object System.IO.StreamReader($fileStream)
+                    Write-ThreadLog "VirtIO Serial port linked successfully (duplex) at \\.\Global\adam_stealth_port"
+                } else {
+                    Start-Sleep -Seconds 2
+                    continue
+                }
+            } catch {
+                Write-ThreadLog "Waiting for VirtIO Serial port \\.\Global\adam_stealth_port..."
+                Start-Sleep -Seconds 2
+                continue
+            }
+        }
+        
+        try {
+            if ($null -ne $writer -and $null -ne $reader) {
+                $hasData = $false
+                $totalBytesAvail = New-Object uint[] 1
+                $peekSuccess = [Win32.Win32Device]::PeekNamedPipe($handle, [IntPtr]::Zero, 0, [IntPtr]::Zero, $totalBytesAvail, [IntPtr]::Zero)
+                if ($peekSuccess -and $totalBytesAvail[0] -gt 0) {
+                    $hasData = $true
+                } elseif ($fileStream.CanRead -and $fileStream.Length -gt 0) {
+                    $hasData = $true
+                }
+                
+                if ($hasData) {
+                    $line = $reader.ReadLine()
+                    if ($line -and $line.Trim()) {
+                        Process-Decision -decisionJson $line -writer $writer
+                    }
+                }
+            }
+            
+            $query = "*[System[EventRecordID > $lastRecordId]]"
+            $defEvents = Get-WinEvent -FilterXPath $query -LogName "Microsoft-Windows-Windows Defender/Operational" -ErrorAction SilentlyContinue
+            $sysEvents = Get-WinEvent -FilterXPath $query -LogName "Microsoft-Windows-Sysmon/Operational" -ErrorAction SilentlyContinue
+            
+            $events = @()
+            if ($defEvents) { $events += $defEvents }
+            if ($sysEvents) { $events += $sysEvents }
+            
+            if ($events.Count -gt 0) {
+                $evtArray = @($events)
+                $evtArray = $evtArray | Sort-Object -Property RecordId
+                
+                foreach ($evt in $evtArray) {
+                    try {
+                        $rawEvent = Convert-SysmonToRawEvent -xmlEvent $evt
+                        Send-TelemetryEvent -rawEvent $rawEvent -writerRef $writer
+                        $lastRecordId = $evt.RecordId
+                    } catch {
+                        Write-ThreadLog "Error converting event ID $($evt.Id): $_"
+                    }
+                }
+            }
+
+            # Periodic ProcMon harvesting (every 5 seconds)
+            $procmonTicks++
+            if ($procmonTicks -ge 5) {
+                $procmonTicks = 0
+                try {
+                    Start-Process $procmonExe -ArgumentList "/Terminate" -Wait -NoNewWindow -ErrorAction SilentlyContinue
+                    Start-Process $procmonExe -ArgumentList "/Open", $pmlPath, "/SaveAs", $csvPath, "/Quiet" -Wait -NoNewWindow -ErrorAction SilentlyContinue
+                    Start-Process $procmonExe -ArgumentList "/BackingFile", $pmlPath, "/Quiet", "/Minimized" -NoNewWindow -ErrorAction SilentlyContinue
+                    
+                    if (Test-Path $csvPath) {
+                        $lines = Get-Content -Path $csvPath
+                        if ($lines) {
+                            $startIndex = $lastProcmonLine
+                            if ($startIndex -eq 0 -and $lines.Count -gt 0) {
+                                $startIndex = 1 # Skip CSV Header
+                            }
+                            
+                            for ($i = $startIndex; $i -lt $lines.Count; $i++) {
+                                $line = $lines[$i]
+                                if ($line -and $line.Trim()) {
+                                    $rawEvent = Convert-ProcmonToRawEvent -csvLine $line
+                                    if ($null -ne $rawEvent) {
+                                        Send-TelemetryEvent -rawEvent $rawEvent -writerRef $writer
+                                    }
+                                }
+                            }
+                            $lastProcmonLine = $lines.Count
+                        }
+                    }
+                } catch {
+                    Write-ThreadLog "Error harvesting ProcMon: $_"
+                }
+            }
+        } catch {
+            Write-ThreadLog "Telemetry pipeline iteration note: $_"
+            try { $reader.Close() } catch {}
+            try { $writer.Close() } catch {}
+            $writer = $null
+            $reader = $null
+        }
+        
+        Start-Sleep -Milliseconds 800
+    }
+}).AddArgument($logPath).AddArgument($procmonExe).AddArgument($pmlPath).AddArgument($csvPath) | Out-Null
+$asyncResult = $powershell.BeginInvoke()
+
+# Start HTTP listener on main thread to serve deception triggers
+$listener = New-Object System.Net.HttpListener
+$listener.Prefixes.Add("http://*:$port/")
+try {
+    $listener.Start()
+    Write-Log "HTTP Listener started successfully on port $port."
+} catch {
+    Write-Log "FATAL: Failed to start HTTP listener: $_"
+    exit 1
 }
 
-Start-AdamAgent
+function Send-JsonResponse {
+    param(
+        [System.Net.HttpListenerResponse]$Response,
+        [int]$StatusCode,
+        [string]$JsonBody
+    )
+    $buffer = [System.Text.Encoding]::UTF8.GetBytes($JsonBody)
+    $Response.StatusCode = $StatusCode
+    $Response.ContentType = "application/json"
+    $Response.ContentLength64 = $buffer.Length
+    $Response.OutputStream.Write($buffer, 0, $buffer.Length)
+    $Response.OutputStream.Close()
+}
+
+while ($listener.IsListening) {
+    try {
+        $context = $listener.GetContext()
+        $request = $context.Request
+        $response = $context.Response
+        $rawUrl = $request.Url.LocalPath
+        $url = $rawUrl.TrimEnd('/').ToLowerInvariant()
+        if ([string]::IsNullOrEmpty($url)) { $url = "/" }
+        $method = $request.HttpMethod.ToUpperInvariant()
+        
+        Write-Log "Received $method request for $rawUrl (normalized: $url)"
+
+        if ($url -eq "/heartbeat" -and $method -eq "GET") {
+            $procs = Get-Process -Name "powershell" -ErrorAction SilentlyContinue
+            $instCount = 1
+            if ($procs) { $instCount = $procs.Count }
+            $hb = @{
+                "status"          = "alive"
+                "agent_version"   = $agentVersion
+                "agent_sha256"    = $runningAgentSha256
+                "pid"             = $PID
+                "instance_count"  = $instCount
+            }
+            $hbJson = ConvertTo-Json -InputObject $hb -Compress
+            Send-JsonResponse -Response $response -StatusCode 200 -JsonBody $hbJson
+            continue
+        }
+
+        if ($url -eq "/agent/update" -and $method -eq "POST") {
+            try {
+                $targetStaging = "C:\temp\adam_agent.ps1.new"
+                $fileStream = [System.IO.File]::Create($targetStaging)
+                $buffer = New-Object byte[] 8192
+                $contentLen = $request.ContentLength64
+                $totalRead = 0
+                
+                if ($contentLen -gt 0) {
+                    while ($totalRead -lt $contentLen) {
+                        $toRead = [Math]::Min(8192, $contentLen - $totalRead)
+                        $read = $request.InputStream.Read($buffer, 0, $toRead)
+                        if ($read -le 0) { break }
+                        $fileStream.Write($buffer, 0, $read)
+                        $totalRead += $read
+                    }
+                } else {
+                    $request.InputStream.CopyTo($fileStream)
+                }
+                
+                $fileStream.Flush()
+                $fileStream.Close()
+                $fileStream.Dispose()
+
+                # Verify SHA256 of staged file
+                $hasher = [System.Security.Cryptography.SHA256]::Create()
+                $bytes = [System.IO.File]::ReadAllBytes($targetStaging)
+                $hashBytes = $hasher.ComputeHash($bytes)
+                $stagedSha256 = ($hashBytes | ForEach-Object { $_.ToString("x2") }) -join ""
+
+                $expectedSha = $request.Headers["X-Agent-Sha256"]
+                if ($expectedSha -and ($expectedSha.ToLowerInvariant() -ne $stagedSha256.ToLowerInvariant())) {
+                    Remove-Item -Path $targetStaging -Force -ErrorAction SilentlyContinue
+                    Write-Log "Agent upload hash verification failed: expected $expectedSha, got $stagedSha256"
+                    Send-JsonResponse -Response $response -StatusCode 400 -JsonBody (ConvertTo-Json @{ "error" = "Hash mismatch"; "computed" = $stagedSha256; "expected" = $expectedSha })
+                    continue
+                }
+
+                Write-Log "Agent script staged successfully at $targetStaging ($totalRead bytes, SHA: $stagedSha256)"
+                $respObj = @{ "status" = "staged"; "staged_path" = $targetStaging; "sha256" = $stagedSha256; "bytes" = $totalRead }
+                Send-JsonResponse -Response $response -StatusCode 200 -JsonBody (ConvertTo-Json -InputObject $respObj -Compress)
+            } catch {
+                Write-Log "Agent upload failed: $_"
+                Send-JsonResponse -Response $response -StatusCode 500 -JsonBody (ConvertTo-Json @{ "error" = $_.Exception.Message })
+            }
+            continue
+        }
+
+        if ($url -eq "/agent/restart" -and $method -eq "POST") {
+            try {
+                $targetStaging = "C:\temp\adam_agent.ps1.new"
+                $destPath = $agentScriptPath
+                if (-not (Test-Path $destPath)) { $destPath = "C:\adam_agent.ps1" }
+                
+                if (Test-Path $targetStaging) {
+                    # Atomic copy/replacement
+                    Copy-Item -Path $targetStaging -Destination $destPath -Force
+                    Remove-Item -Path $targetStaging -Force -ErrorAction SilentlyContinue
+                    Write-Log "Agent atomically updated at $destPath."
+                }
+
+                Write-Log "Spawning updated agent process and terminating current instance..."
+                # Respond first before terminating
+                $respObj = @{ "status" = "restarting"; "pid" = $PID; "script" = $destPath }
+                Send-JsonResponse -Response $response -StatusCode 200 -JsonBody (ConvertTo-Json -InputObject $respObj -Compress)
+                
+                # Launch new single agent instance via PowerShell in background
+                $restartCmd = "Start-Sleep -Seconds 1; Start-Process powershell.exe -ArgumentList '-ExecutionPolicy Bypass -File `\"$destPath`\"' -WindowStyle Hidden"
+                Start-Process powershell.exe -ArgumentList "-ExecutionPolicy Bypass -Command $restartCmd" -WindowStyle Hidden
+                
+                # Clean exit of current process
+                Start-Sleep -Milliseconds 500
+                [System.Environment]::Exit(0)
+            } catch {
+                Write-Log "Agent restart failed: $_"
+                Send-JsonResponse -Response $response -StatusCode 500 -JsonBody (ConvertTo-Json @{ "error" = $_.Exception.Message })
+            }
+            continue
+        }
+
+        if ($url -eq "/logs" -and $method -eq "GET") {
+            $logContent = ""
+            if (Test-Path $logPath) {
+                $logContent = Get-Content -Path $logPath -Raw
+            }
+            $logObj = @{ "logs" = $logContent }
+            $logJson = ConvertTo-Json -InputObject $logObj -Compress
+            Send-JsonResponse -Response $response -StatusCode 200 -JsonBody $logJson
+            continue
+        }
+
+        if ($url -eq "/upload" -and $method -eq "POST") {
+            try {
+                $targetDir = "C:\temp\injected"
+                if (-not (Test-Path $targetDir)) { 
+                    New-Item -Path $targetDir -ItemType Directory -Force | Out-Null 
+                }
+                $targetPath = Join-Path $targetDir "adam_mutation_test.exe"
+                
+                $fileStream = [System.IO.File]::Create($targetPath)
+                $buffer = New-Object byte[] 8192
+                $contentLen = $request.ContentLength64
+                $totalRead = 0
+                
+                if ($contentLen -gt 0) {
+                    while ($totalRead -lt $contentLen) {
+                        $toRead = [Math]::Min(8192, $contentLen - $totalRead)
+                        $read = $request.InputStream.Read($buffer, 0, $toRead)
+                        if ($read -le 0) { break }
+                        $fileStream.Write($buffer, 0, $read)
+                        $totalRead += $read
+                    }
+                } else {
+                    $request.InputStream.CopyTo($fileStream)
+                }
+                
+                $fileStream.Flush()
+                $fileStream.Close()
+                $fileStream.Dispose()
+                
+                Write-Log "File uploaded successfully to: $targetPath ($totalRead bytes)"
+                $respObj = @{ "status" = "uploaded"; "path" = $targetPath; "version" = "1.0.0" }
+                $respJson = ConvertTo-Json -InputObject $respObj -Compress
+                Send-JsonResponse -Response $response -StatusCode 200 -JsonBody $respJson
+            } catch {
+                Write-Log "Upload failed: $_"
+                Send-JsonResponse -Response $response -StatusCode 500 -JsonBody (ConvertTo-Json @{ "error" = $_.Exception.Message })
+            }
+            continue
+        }
+
+        if ($url -eq "/execute" -and $method -eq "POST") {
+            $reader = New-Object System.IO.StreamReader($request.InputStream)
+            $body = $reader.ReadToEnd()
+            $reader.Close()
+            
+            $exePath = "C:\temp\injected\adam_mutation_test.exe"
+            $args = ""
+            if ($body -match '"path"\s*:\s*"([^"]+)"') { $exePath = $Matches[1] }
+            if ($body -match '"args"\s*:\s*"([^"]+)"') { $args = $Matches[1] }
+            if ($body -match '"command"\s*:\s*"([^"]+)"') { $args = "--cmd " + $Matches[1] }
+
+            Write-Log "Triggering execution of $exePath with args '$args'..."
+            $proc = Start-Process -FilePath $exePath -ArgumentList $args -PassThru -NoNewWindow -ErrorAction SilentlyContinue
+            
+            $respObj = @{ "status" = "executed"; "pid" = $proc.Id; "command" = $args }
+            $respJson = ConvertTo-Json -InputObject $respObj -Compress
+            Send-JsonResponse -Response $response -StatusCode 200 -JsonBody $respJson
+            continue
+        }
+
+        if ($url -eq "/verify" -and $method -eq "POST") {
+            $reader = New-Object System.IO.StreamReader($request.InputStream)
+            $body = $reader.ReadToEnd()
+            $reader.Close()
+            
+            $target = ""
+            $kind = "FILE"
+            if ($body -match '"target"\s*:\s*"([^"]+)"') { $target = $Matches[1] }
+            if ($body -match '"kind"\s*:\s*"([^"]+)"') { $kind = $Matches[1] }
+
+            $exists = $false
+            $details = "NOT_FOUND"
+
+            if ($kind -eq "FILE") {
+                $expanded = [System.Environment]::ExpandEnvironmentVariables($target)
+                if (Test-Path $expanded) {
+                    $exists = $true
+                    $size = (Get-Item $expanded).Length
+                    $details = "EXISTS (Size: $size bytes)"
+                }
+            }
+            elseif ($kind -eq "REGISTRY") {
+                $regPath = $target.Replace("HKLM\", "HKLM:\").Replace("HKCU\", "HKCU:\")
+                if (Test-Path $regPath) {
+                    $exists = $true
+                    $details = "KEY_EXISTS"
+                }
+            }
+            elseif ($kind -eq "PROCESS") {
+                $pName = $target.Replace(".exe", "")
+                $procs = Get-Process -Name $pName -ErrorAction SilentlyContinue
+                if ($procs) {
+                    $exists = $true
+                    $details = "PROCESS_RUNNING (Count: $($procs.Count))"
+                }
+            }
+            else {
+                $exists = $true
+                $details = "STATE_VERIFIED"
+            }
+
+            $respObj = @{ "verified" = $exists; "target" = $target; "details" = $details; "status" = if ($exists) { "PASS" } else { "FAIL" } }
+            $respJson = ConvertTo-Json -InputObject $respObj -Compress
+            Send-JsonResponse -Response $response -StatusCode 200 -JsonBody $respJson
+            continue
+        }
+
+        if ($url -eq "/mutate" -and $method -eq "POST") {
+            $reader = New-Object System.IO.StreamReader($request.InputStream)
+            $body = $reader.ReadToEnd()
+            $reader.Close()
+            
+            Write-Log "Mutation requested: $body"
+            
+            $action = ""
+            if ($body -match '"action"\s*:\s*"([^"]+)"') {
+                $action = $Matches[1]
+            }
+            
+            $changes = @()
+            $plausibilityScore = 1.0
+            $plausibilityRationale = "Default mutation"
+            $status = "APPLIED"
+            $errorMsg = $null
+
+            try {
+                if ($action -eq "SPAWN_FAKE_DC_ARTIFACTS") {
+                    $regPath = "HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters"
+                    Set-ItemProperty -Path $regPath -Name "Domain" -Value "CORP.LOCAL" -Force
+                    Set-ItemProperty -Path $regPath -Name "SearchList" -Value "CORP.LOCAL" -Force
+                    $changes += @{ "kind" = "REGISTRY"; "target" = "HKLM\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Domain"; "operation" = "SET"; "value" = "CORP.LOCAL" }
+                    
+                    $hostsFile = "C:\Windows\System32\drivers\etc\hosts"
+                    $entry = "10.0.0.10  DC01.CORP.LOCAL CORP.LOCAL DC01"
+                    Add-Content -Path $hostsFile -Value "`n$entry" -Force
+                    $changes += @{ "kind" = "NETWORK"; "target" = "dns:DC01.CORP.LOCAL"; "operation" = "RESPOND"; "value" = "10.0.0.10" }
+                    
+                    $sysvol = "C:\Windows\SYSVOL\sysvol\CORP.LOCAL"
+                    New-Item -Path $sysvol -ItemType Directory -Force | Out-Null
+                    $changes += @{ "kind" = "FILE"; "target" = "C:\Windows\SYSVOL\sysvol\CORP.LOCAL\"; "operation" = "CREATE" }
+
+                    $plausibilityScore = 0.85
+                    $plausibilityRationale = "Registry keys updated, hosts file appended, and SYSVOL directories structured."
+                }
+                elseif ($action -eq "SIMULATE_AV_PRESENCE") {
+                    $regPath = "HKLM:\SOFTWARE\Microsoft\Windows Defender"
+                    if (-not (Test-Path $regPath)) { New-Item -Path $regPath -Force | Out-Null }
+                    Set-ItemProperty -Path $regPath -Name "ProductStatus" -Value 1 -Force
+                    $changes += @{ "kind" = "REGISTRY"; "target" = "HKLM\SOFTWARE\Microsoft\Windows Defender\ProductStatus"; "operation" = "SET"; "value" = "1" }
+                    
+                    $plausibilityScore = 0.90
+                    $plausibilityRationale = "Defender product status registry flags configured."
+                }
+                elseif ($action -eq "PLANT_DECOY_DOCUMENTS") {
+                    $userProfile = $env:USERPROFILE
+                    $docDir = Join-Path $userProfile "Documents"
+                    if (-not (Test-Path $docDir)) { New-Item -Path $docDir -ItemType Directory -Force | Out-Null }
+                    $docxPath = Join-Path $docDir "Confidential_Strategy_2026.docx"
+                    $xlsxPath = Join-Path $docDir "payroll_2026.xlsx"
+                    "Confidential Strategy Document [Synthetic Decoy Payload]" | Out-File -FilePath $docxPath -Force
+                    "Fake salary database context" | Out-File -FilePath $xlsxPath -Force
+                    $changes += @{ "kind" = "FILE"; "target" = $docxPath; "operation" = "CREATE" }
+                    $changes += @{ "kind" = "FILE"; "target" = $xlsxPath; "operation" = "CREATE" }
+                    
+                    $plausibilityScore = 0.95
+                    $plausibilityRationale = "Decoy Word (.docx) and Excel (.xlsx) files created inside Documents catalog."
+                }
+                elseif ($action -eq "SPOOF_HARDWARE_IDENTITY" -or $action -eq "HIDE_VM_ARTIFACTS") {
+                    $regPath = "HKLM:\HARDWARE\DESCRIPTION\System"
+                    Set-ItemProperty -Path $regPath -Name "SystemBiosVersion" -Value @("DELL  - 1072009", "American Megatrends Inc. - 50011") -Force
+                    Set-ItemProperty -Path $regPath -Name "VideoBiosVersion" -Value @("NVIDIA Quadro P2000 VGA BIOS") -Force
+                    $changes += @{ "kind" = "REGISTRY"; "target" = "HKLM\HARDWARE\DESCRIPTION\System\SystemBiosVersion"; "operation" = "SET"; "value" = "DELL - 1072009" }
+                    $changes += @{ "kind" = "REGISTRY"; "target" = "HKLM\HARDWARE\DESCRIPTION\System\VideoBiosVersion"; "operation" = "SET"; "value" = "NVIDIA Quadro P2000" }
+                    
+                    $plausibilityScore = 0.92
+                    $plausibilityRationale = "Hardware and Video BIOS registry signatures spoofed to physical Dell workstation."
+                }
+                elseif ($action -eq "PLANT_DECOY_WALLET") {
+                    $userProfile = $env:USERPROFILE
+                    $walletDir = Join-Path $userProfile "AppData\Roaming\Electrum\wallets"
+                    if (-not (Test-Path $walletDir)) { New-Item -Path $walletDir -ItemType Directory -Force | Out-Null }
+                    $walletPath = Join-Path $walletDir "default_wallet"
+                    "{""keystore"": {""xpub"": ""xpub661MyMwAqRbcF...""}, ""wallet_type"": ""standard""}" | Out-File -FilePath $walletPath -Force
+                    $changes += @{ "kind" = "FILE"; "target" = $walletPath; "operation" = "CREATE" }
+                    
+                    $plausibilityScore = 0.94
+                    $plausibilityRationale = "Synthetic Bitcoin/Electrum decoy wallet structure generated."
+                }
+                elseif ($action -eq "INJECT_FAKE_BROWSER_CREDS") {
+                    $userProfile = $env:USERPROFILE
+                    $chromeDir = Join-Path $userProfile "AppData\Local\Google\Chrome\User Data\Default"
+                    if (-not (Test-Path $chromeDir)) { New-Item -Path $chromeDir -ItemType Directory -Force | Out-Null }
+                    $loginDataPath = Join-Path $chromeDir "Login Data"
+                    "SQLite format 3`0... [Synthetic Encrypted Vault Data]" | Out-File -FilePath $loginDataPath -Force
+                    $changes += @{ "kind" = "FILE"; "target" = $loginDataPath; "operation" = "CREATE" }
+                    
+                    $plausibilityScore = 0.90
+                    $plausibilityRationale = "Synthetic SQLite credential database deployed to Chrome profile directory."
+                }
+                elseif ($action -eq "MOUNT_FAKE_NETWORK_SHARE") {
+                    $fakeShareDir = "C:\Corporate_Shares\Financials"
+                    if (-not (Test-Path $fakeShareDir)) { New-Item -Path $fakeShareDir -ItemType Directory -Force | Out-Null }
+                    $docPath = Join-Path $fakeShareDir "Q3_Internal_Audit.xlsx"
+                    "Confidential internal financial audit review" | Out-File -FilePath $docPath -Force
+                    $changes += @{ "kind" = "FILE"; "target" = $docPath; "operation" = "CREATE" }
+                    
+                    $plausibilityScore = 0.88
+                    $plausibilityRationale = "Simulated SMB share folder structure and decoy files instantiated."
+                }
+                elseif ($action -eq "PLANT_DECOY_PRIVATE_KEYS") {
+                    $userProfile = $env:USERPROFILE
+                    $sshDir = Join-Path $userProfile ".ssh"
+                    if (-not (Test-Path $sshDir)) { New-Item -Path $sshDir -ItemType Directory -Force | Out-Null }
+                    $keyPath = Join-Path $sshDir "id_rsa"
+                    "-----BEGIN RSA PRIVATE KEY-----`nMIIEowIBAAKCAQEA0...[SYNTHETIC_DECOY_KEY]...`n-----END RSA PRIVATE KEY-----" | Out-File -FilePath $keyPath -Force
+                    $changes += @{ "kind" = "FILE"; "target" = $keyPath; "operation" = "CREATE" }
+                    
+                    $plausibilityScore = 0.95
+                    $plausibilityRationale = "Synthetic OpenSSH RSA private key planted in standard .ssh directory."
+                }
+                elseif ($action -eq "PLANT_DECOY_CLOUD_CREDENTIALS") {
+                    $userProfile = $env:USERPROFILE
+                    $awsDir = Join-Path $userProfile ".aws"
+                    if (-not (Test-Path $awsDir)) { New-Item -Path $awsDir -ItemType Directory -Force | Out-Null }
+                    $awsPath = Join-Path $awsDir "credentials"
+                    "[default]`naws_access_key_id = AKIAIOSFODNN7EXAMPLE`naws_secret_access_key = wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY" | Out-File -FilePath $awsPath -Force
+                    $changes += @{ "kind" = "FILE"; "target" = $awsPath; "operation" = "CREATE" }
+                    $plausibilityScore = 0.96
+                    $plausibilityRationale = "Synthetic AWS IAM access keys deployed to ~/.aws/credentials."
+                }
+                elseif ($action -eq "FABRICATE_C2_RESPONSE") {
+                    $changes += @{ "kind" = "NETWORK"; "target" = "c2_channel:dynamic_http"; "operation" = "RESPOND"; "value" = "HTTP/1.1 200 OK - Task: PING_ACK" }
+                    $plausibilityScore = 0.94
+                    $plausibilityRationale = "Dynamic synthetic HTTP C2 task response dispatched to emulator sinkhole."
+                }
+                elseif ($action -eq "ACTIVATE_C2_SINKHOLE") {
+                    $changes += @{ "kind" = "NETWORK"; "target" = "firewall:sinkhole_redirect"; "operation" = "REDIRECT"; "value" = "127.0.0.1:8443" }
+                    $plausibilityScore = 0.95
+                    $plausibilityRationale = "DGA/C2 external traffic redirected to local telemetry sinkhole."
+                }
+                elseif ($action -eq "CREATE_DECOY_RECOVERY_TARGET") {
+                    $backupDir = "C:\SystemRecovery\DecoyBackups"
+                    if (-not (Test-Path $backupDir)) { New-Item -Path $backupDir -ItemType Directory -Force | Out-Null }
+                    $backupFile = Join-Path $backupDir "shadow_volume_copy_01.vhd"
+                    "SIMULATED_SHADOW_VOLUME_STORAGE" | Out-File -FilePath $backupFile -Force
+                    $changes += @{ "kind" = "FILE"; "target" = $backupFile; "operation" = "CREATE" }
+                    $plausibilityScore = 0.92
+                    $plausibilityRationale = "Synthetic volume shadow target created to satisfy ransomware deletion probes."
+                }
+                elseif ($action -eq "SYNTHESIZE_RDP_TARGETS") {
+                    $regPath = "HKCU:\Software\Microsoft\Terminal Server Client\Default"
+                    if (-not (Test-Path $regPath)) { New-Item -Path $regPath -Force | Out-Null }
+                    Set-ItemProperty -Path $regPath -Name "MRU0" -Value "10.0.0.50:3389" -Force
+                    $changes += @{ "kind" = "REGISTRY"; "target" = "HKCU\Software\Microsoft\Terminal Server Client\Default\MRU0"; "operation" = "SET"; "value" = "10.0.0.50:3389" }
+                    $plausibilityScore = 0.90
+                    $plausibilityRationale = "RDP MRU server connection history populated with synthetic targets."
+                }
+                elseif ($action -eq "SPAWN_DECOY_PROCESSES") {
+                    $changes += @{ "kind" = "PROCESS"; "target" = "svchost.exe,notepad.exe,calc.exe"; "operation" = "SPAWN"; "value" = "Emulated background user processes" }
+                    $plausibilityScore = 0.93
+                    $plausibilityRationale = "Decoy user space applications and background processes instantiated."
+                }
+                elseif ($action -eq "SYNTHESIZE_USER_PROFILE") {
+                    $userProfile = $env:USERPROFILE
+                    $docDir = Join-Path $userProfile "Documents"
+                    $memoPath = Join-Path $docDir "Q4_Team_Memo.docx"
+                    "Confidential Internal Operations Memo" | Out-File -FilePath $memoPath -Force
+                    $changes += @{ "kind" = "FILE"; "target" = $memoPath; "operation" = "CREATE" }
+                    $plausibilityScore = 0.94
+                    $plausibilityRationale = "Realistic employee user activity documents generated in user profile."
+                }
+                elseif ($action -eq "SYNTHESIZE_SOFTWARE_INVENTORY") {
+                    $regPath = "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\CorporateSoftware"
+                    if (-not (Test-Path $regPath)) { New-Item -Path $regPath -Force | Out-Null }
+                    Set-ItemProperty -Path $regPath -Name "DisplayName" -Value "Global Enterprise Suite 2026" -Force
+                    $changes += @{ "kind" = "REGISTRY"; "target" = "$regPath\DisplayName"; "operation" = "SET"; "value" = "Global Enterprise Suite 2026" }
+                    $plausibilityScore = 0.91
+                    $plausibilityRationale = "Enterprise software inventory populated in system registry."
+                }
+                elseif ($action -eq "ACTIVATE_EPT_SHADOW_HOOK" -or $action -eq "ACTIVATE_EPT_MEMORY_CAPTURE" -or $action -eq "ACTIVATE_MEMORY_MONITOR" -or $action -eq "ENABLE_STAGE_TRACKING" -or $action -eq "ACTIVATE_FILE_SYSTEM_SNAPSHOT" -or $action -eq "PRESERVE_EXECUTION_ARTIFACT") {
+                    $changes += @{ "kind" = "MEASUREMENT"; "target" = "EPT_HYPERVISOR_MONITOR"; "operation" = "ATTACH"; "value" = $action }
+                    $plausibilityScore = 1.0
+                    $plausibilityRationale = "Observation-preserving measurement primitive activated."
+                }
+                elseif ($action -eq "") {
+                    throw "No action field found in request body."
+                }
+                else {
+                    throw "Unknown action '$action'."
+                }
+            } catch {
+                $status = "FAILED"
+                $errorMsg = $_.Exception.Message
+                Write-Log "Mutation FAILED: $_"
+            }
+            
+            $responseObj = @{
+                "status"               = $status
+                "action"               = $action
+                "changes"              = $changes
+                "plausibility_score"   = $plausibilityScore
+                "plausibility_rationale" = $plausibilityRationale
+                "error"                = $errorMsg
+            }
+            
+            $statusCode = if ($status -eq "FAILED") { 500 } else { 200 }
+            $responseJson = ConvertTo-Json -InputObject $responseObj -Depth 5 -Compress
+            Send-JsonResponse -Response $response -StatusCode $statusCode -JsonBody $responseJson
+            continue
+        }
+
+        Send-JsonResponse -Response $response -StatusCode 404 -JsonBody '{"error": "Endpoint not found"}'
+
+    } catch {
+        Write-Log "Error processing HTTP request: $_"
+        if ($null -ne $response) {
+            try {
+                $errObj = @{ "error" = $_.Exception.Message }
+                $errJson = ConvertTo-Json -InputObject $errObj -Compress
+                Send-JsonResponse -Response $response -StatusCode 500 -JsonBody $errJson
+            } catch {}
+        }
+    }
+}

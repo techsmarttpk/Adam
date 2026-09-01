@@ -1,0 +1,105 @@
+# Anti-Forensics Policy Rules
+- id: RULE-AF-001
+  severity: CRITICAL
+  rationale: "Event log clear; observe anti-forensics behavior."
+  when:
+    intent: ANTI_FORENSICS_EVENT_LOG_CLEAR
+    confidence_gte: 0.90
+  then:
+    action: NONE
+    action_category: OBSERVE
+    default_verdict: OBSERVE
+    priority: 90
+  budget:
+    max_per_session: 5
+    cooldown_seconds: 15
+
+- id: RULE-AF-002
+  severity: HIGH
+  rationale: "File deletion; observe."
+  when:
+    intent: ANTI_FORENSICS_FILE_DELETION
+    confidence_gte: 0.80
+  then:
+    action: NONE
+    action_category: OBSERVE
+    default_verdict: OBSERVE
+    priority: 60
+  budget:
+    max_per_session: 5
+    cooldown_seconds: 15
+
+- id: RULE-AF-003
+  severity: HIGH
+  rationale: "Timestamp tampering (timestomp); observe."
+  when:
+    intent: ANTI_FORENSICS_TIMESTAMP_TAMPERING
+    confidence_gte: 0.80
+  then:
+    action: NONE
+    action_category: OBSERVE
+    default_verdict: OBSERVE
+    priority: 60
+  budget:
+    max_per_session: 5
+    cooldown_seconds: 15
+
+- id: RULE-AF-004
+  severity: HIGH
+  rationale: "History clear; observe."
+  when:
+    intent: ANTI_FORENSICS_HISTORY_CLEAR
+    confidence_gte: 0.80
+  then:
+    action: NONE
+    action_category: OBSERVE
+    default_verdict: OBSERVE
+    priority: 60
+  budget:
+    max_per_session: 5
+    cooldown_seconds: 15
+
+- id: RULE-AF-005
+  severity: HIGH
+  rationale: "Artifact cleanup; observe."
+  when:
+    intent: ANTI_FORENSICS_ARTIFACT_CLEANUP
+    confidence_gte: 0.80
+  then:
+    action: NONE
+    action_category: OBSERVE
+    default_verdict: OBSERVE
+    priority: 60
+  budget:
+    max_per_session: 5
+    cooldown_seconds: 15
+
+- id: RULE-AF-006
+  severity: CRITICAL
+  rationale: "Self-deletion detected; preserve execution artifact."
+  when:
+    intent: ANTI_FORENSICS_SELF_DELETE
+    confidence_gte: 0.85
+  then:
+    action: PRESERVE_EXECUTION_ARTIFACT
+    action_category: MEASUREMENT
+    default_verdict: EXECUTE
+    priority: 95
+  budget:
+    max_per_session: 1
+    cooldown_seconds: 30
+
+- id: RULE-AF-007
+  severity: HIGH
+  rationale: "Log tampering; observe."
+  when:
+    intent: ANTI_FORENSICS_LOG_TAMPERING
+    confidence_gte: 0.80
+  then:
+    action: NONE
+    action_category: OBSERVE
+    default_verdict: OBSERVE
+    priority: 60
+  budget:
+    max_per_session: 5
+    cooldown_seconds: 15

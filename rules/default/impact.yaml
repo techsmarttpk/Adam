@@ -1,0 +1,240 @@
+# Impact & Ransomware Policy Rules
+- id: RULE-IMPACT-001
+  severity: CRITICAL
+  rationale: "Shadow copy deletion; create decoy recovery target."
+  when:
+    intent: IMPACT_SHADOW_COPY_DELETE
+    confidence_gte: 0.85
+  then:
+    action: CREATE_DECOY_RECOVERY_TARGET
+    action_category: MUTATE
+    default_verdict: EXECUTE
+    priority: 99
+  budget:
+    max_per_session: 1
+    cooldown_seconds: 30
+
+- id: RULE-IMPACT-002
+  severity: HIGH
+  rationale: "Ransom note dropped; enable file activity monitor."
+  when:
+    intent: IMPACT_RANSOM_NOTE_DROP
+    confidence_gte: 0.80
+  then:
+    action: ENABLE_FILE_ACTIVITY_MONITOR
+    action_category: MEASUREMENT
+    default_verdict: EXECUTE
+    priority: 90
+  budget:
+    max_per_session: 2
+    cooldown_seconds: 20
+
+- id: RULE-IMPACT-003
+  severity: CRITICAL
+  rationale: "Mass file encryption in progress; activate file system snapshot."
+  when:
+    intent: IMPACT_MASS_FILE_ENCRYPT
+    confidence_gte: 0.85
+  then:
+    action: ACTIVATE_FILE_SYSTEM_SNAPSHOT
+    action_category: MEASUREMENT
+    default_verdict: EXECUTE
+    priority: 99
+  budget:
+    max_per_session: 1
+    cooldown_seconds: 30
+
+- id: RULE-IMPACT-004
+  severity: CRITICAL
+  rationale: "File destruction; observe destructive impact."
+  when:
+    intent: IMPACT_FILE_DESTRUCTION
+    confidence_gte: 0.85
+  then:
+    action: NONE
+    action_category: OBSERVE
+    default_verdict: OBSERVE
+    priority: 95
+  budget:
+    max_per_session: 5
+    cooldown_seconds: 10
+
+- id: RULE-IMPACT-005
+  severity: CRITICAL
+  rationale: "Disk wipe attempt; observe."
+  when:
+    intent: IMPACT_DISK_WIPE
+    confidence_gte: 0.90
+  then:
+    action: NONE
+    action_category: OBSERVE
+    default_verdict: OBSERVE
+    priority: 99
+  budget:
+    max_per_session: 5
+    cooldown_seconds: 10
+
+- id: RULE-IMPACT-006
+  severity: HIGH
+  rationale: "Service stop (destructive); observe."
+  when:
+    intent: IMPACT_SERVICE_STOP
+    confidence_gte: 0.80
+  then:
+    action: NONE
+    action_category: OBSERVE
+    default_verdict: OBSERVE
+    priority: 75
+  budget:
+    max_per_session: 5
+    cooldown_seconds: 10
+
+- id: RULE-IMPACT-007
+  severity: CRITICAL
+  rationale: "Security tool disable; observe."
+  when:
+    intent: IMPACT_SECURITY_TOOL_DISABLE
+    confidence_gte: 0.85
+  then:
+    action: NONE
+    action_category: OBSERVE
+    default_verdict: OBSERVE
+    priority: 95
+  budget:
+    max_per_session: 5
+    cooldown_seconds: 10
+
+- id: RULE-IMPACT-008
+  severity: CRITICAL
+  rationale: "System recovery disable; create decoy recovery target."
+  when:
+    intent: IMPACT_SYSTEM_RECOVERY_DISABLE
+    confidence_gte: 0.85
+  then:
+    action: CREATE_DECOY_RECOVERY_TARGET
+    action_category: MUTATE
+    default_verdict: EXECUTE
+    priority: 95
+  budget:
+    max_per_session: 1
+    cooldown_seconds: 30
+
+- id: RULE-IMPACT-009
+  severity: CRITICAL
+  rationale: "Backup targeting; observe."
+  when:
+    intent: IMPACT_BACKUP_TARGETING
+    confidence_gte: 0.85
+  then:
+    action: NONE
+    action_category: OBSERVE
+    default_verdict: OBSERVE
+    priority: 95
+  budget:
+    max_per_session: 5
+    cooldown_seconds: 10
+
+- id: RULE-IMPACT-010
+  severity: HIGH
+  rationale: "Ransom preparation; plant decoy documents."
+  when:
+    intent: RANSOM_PREPARATION
+    confidence_gte: 0.75
+  then:
+    action: PLANT_DECOY_DOCUMENTS
+    action_category: MUTATE
+    default_verdict: EXECUTE
+    priority: 85
+  budget:
+    max_per_session: 2
+    cooldown_seconds: 20
+
+- id: RULE-IMPACT-011
+  severity: HIGH
+  rationale: "Ransom file enumeration; plant decoy documents."
+  when:
+    intent: RANSOM_FILE_ENUMERATION
+    confidence_gte: 0.75
+  then:
+    action: PLANT_DECOY_DOCUMENTS
+    action_category: MUTATE
+    default_verdict: EXECUTE
+    priority: 85
+  budget:
+    max_per_session: 2
+    cooldown_seconds: 20
+
+- id: RULE-IMPACT-012
+  severity: CRITICAL
+  rationale: "Ransom target selection; plant decoy documents."
+  when:
+    intent: RANSOM_TARGET_SELECTION
+    confidence_gte: 0.80
+  then:
+    action: PLANT_DECOY_DOCUMENTS
+    action_category: MUTATE
+    default_verdict: EXECUTE
+    priority: 90
+  budget:
+    max_per_session: 2
+    cooldown_seconds: 20
+
+- id: RULE-IMPACT-013
+  severity: CRITICAL
+  rationale: "Ransom key generation; observe."
+  when:
+    intent: RANSOM_KEY_GENERATION
+    confidence_gte: 0.85
+  then:
+    action: NONE
+    action_category: OBSERVE
+    default_verdict: OBSERVE
+    priority: 90
+  budget:
+    max_per_session: 5
+    cooldown_seconds: 10
+
+- id: RULE-IMPACT-014
+  severity: CRITICAL
+  rationale: "Ransom encryption start; activate file system snapshot."
+  when:
+    intent: RANSOM_ENCRYPTION_START
+    confidence_gte: 0.85
+  then:
+    action: ACTIVATE_FILE_SYSTEM_SNAPSHOT
+    action_category: MEASUREMENT
+    default_verdict: EXECUTE
+    priority: 99
+  budget:
+    max_per_session: 1
+    cooldown_seconds: 30
+
+- id: RULE-IMPACT-015
+  severity: CRITICAL
+  rationale: "Ransom recovery disable; create decoy recovery target."
+  when:
+    intent: RANSOM_RECOVERY_DISABLE
+    confidence_gte: 0.85
+  then:
+    action: CREATE_DECOY_RECOVERY_TARGET
+    action_category: MUTATE
+    default_verdict: EXECUTE
+    priority: 95
+  budget:
+    max_per_session: 1
+    cooldown_seconds: 30
+
+- id: RULE-IMPACT-016
+  severity: HIGH
+  rationale: "Ransom note deployment; enable file activity monitor."
+  when:
+    intent: RANSOM_NOTE_DEPLOYMENT
+    confidence_gte: 0.80
+  then:
+    action: ENABLE_FILE_ACTIVITY_MONITOR
+    action_category: MEASUREMENT
+    default_verdict: EXECUTE
+    priority: 90
+  budget:
+    max_per_session: 2
+    cooldown_seconds: 20

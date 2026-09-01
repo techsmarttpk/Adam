@@ -1,101 +1,44 @@
-from __future__ import annotations
+import logging
+from typing import List, Callable, Optional
+from adam.contracts.interfaces import IFusionEngine
+from adam.contracts.raw_event import RawEvent
+from adam.contracts.semantic_event import SemanticEvent
+from adam.common.config import FusionSettings
+from adam.common.bus import EventBus
+from adam.fusion.normalise import EventNormaliser
+from adam.fusion.correlate import EventCorrelator
+from adam.fusion import detectors
 
-import time
-from datetime import datetime
-from typing import Iterable
+from adam.fusion.registry import DETECTOR_REGISTRY
 
-from .correlate import EventCorrelator
-from .detectors.registry import DetectorRegistry
-from .models import FusionResult, RawEvent
-from .normalise import EventNormalizer
-from .process_tree import ProcessTree
-from .window import SlidingWindow
+logger = logging.getLogger("adam.fusion.engine")
 
+class FusionEngine(IFusionEngine):
+    def __init__(self, settings: FusionSettings, bus: EventBus) -> None:
+        self.settings = settings
+        self.bus = bus
+        self.correlator = EventCorrelator(window_seconds=settings.window_seconds)
+        self._current_mutation_id: Optional[str] = None
 
-class EventFusionEngine:
-    """
-    Coordinates the complete Event Fusion pipeline.
+    def set_active_mutation(self, mutation_id: Optional[str]) -> None:
+        self._current_mutation_id = mutation_id
 
-    Pipeline
-
-    RawEvent
-        ↓
-    Normalizer
-        ↓
-    Sliding Window
-        ↓
-    Process Tree
-        ↓
-    Correlator
-        ↓
-    Detector Registry
-        ↓
-    Semantic Events
-        ↓
-    Fusion Result
-    """
-
-    def __init__(self, window_seconds: int = 10):
-
-        self.normalizer = EventNormalizer()
-        self.window = SlidingWindow(window_seconds)
-        self.process_tree = ProcessTree()
-        self.correlator = EventCorrelator()
-        self.registry = DetectorRegistry()
-
-    def process(self, events: Iterable[RawEvent]) -> FusionResult:
-        """
-        Process a batch of events through the fusion pipeline.
-        """
-
-        start = time.perf_counter()
-
-        normalized_events = []
-
-        # ----------------------------
-        # Normalize + Window + Process Tree
-        # ----------------------------
-        for event in events:
-
-            normalized = self.normalizer.normalize(event)
-
-            normalized_events.append(normalized)
-
-            self.window.add(normalized)
-
-            self.process_tree.update(normalized)
-
-        # ----------------------------
-        # Correlation
-        # ----------------------------
-        groups = self.correlator.correlate(
-            self.window.get_events()
-        )
-
-        # ----------------------------
-        # Detection
-        # ----------------------------
+    async def ingest(self, event: RawEvent) -> List[SemanticEvent]:
+        norm_event = EventNormaliser.normalise(event)
+        self.correlator.add_event(norm_event)
+        
         semantic_events = []
+        for detector_func in DETECTOR_REGISTRY:
+            try:
+                results = detector_func(self.correlator, norm_event)
+                for se in results:
+                    if self._current_mutation_id:
+                        se.caused_by_mutation = self._current_mutation_id
+                    semantic_events.append(se)
+            except Exception as e:
+                logger.error(f"Detector error in {detector_func.__name__}: {e}", exc_info=True)
 
-        for group in groups:
-
-            for detector in self.registry:
-
-                matched = detector.match(group)
-
-                if matched:
-
-                    semantic_events.append(
-                        detector.build(matched)
-                    )
-
-        runtime_ms = (time.perf_counter() - start) * 1000
-
-        return FusionResult(
-            timestamp=datetime.now(),
-            processed_events=len(normalized_events),
-            normalized_events=len(normalized_events),
-            correlated_groups=len(groups),
-            detections=semantic_events,
-            runtime_ms=runtime_ms,
-        )
+        for se in semantic_events:
+            await self.bus.publish(se)
+            
+        return semantic_events

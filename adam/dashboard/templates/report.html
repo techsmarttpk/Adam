@@ -117,27 +117,8 @@
             </tr>
             {% endfor %}
           {% else %}
-            <!-- Fallback Mock Data for demo view -->
             <tr>
-              <td><strong>RECON_DOMAIN_CONTROLLER</strong></td>
-              <td><code>0</code></td>
-              <td><code>3</code></td>
-              <td><span class="badge badge-ready">Yes</span></td>
-              <td><a href="/dashboard/session/{{ session.session_id if session else 'sess_demo_1' }}" style="font-family: var(--font-mono);">corr_01J8X4K2M9</a></td>
-            </tr>
-            <tr>
-              <td><strong>ATTACK_ACTIVE_DIRECTORY_LDAP</strong></td>
-              <td><code>0</code></td>
-              <td><code>12</code></td>
-              <td><span class="badge badge-ready">Yes</span></td>
-              <td><a href="/dashboard/session/{{ session.session_id if session else 'sess_demo_1' }}" style="font-family: var(--font-mono);">corr_01J8X4K2M9</a></td>
-            </tr>
-            <tr>
-              <td><strong>ATTACK_SYSVOL_SHARE_ACCESS</strong></td>
-              <td><code>0</code></td>
-              <td><code>6</code></td>
-              <td><span class="badge badge-ready">Yes</span></td>
-              <td><a href="/dashboard/session/{{ session.session_id if session else 'sess_demo_1' }}" style="font-family: var(--font-mono);">corr_01J8X4K2M9</a></td>
+              <td colspan="5" style="text-align: center; color: var(--text-muted); padding: 18px;">No semantic intents available to calculate yield delta for this session.</td>
             </tr>
           {% endif %}
         </tbody>
@@ -200,12 +181,22 @@
           </tr>
         </thead>
         <tbody>
+          {% for m in mutations %}
           <tr>
-            <td><code>14:32:14.118Z</code></td>
-            <td><strong>FakeDomainControllerDeception</strong></td>
-            <td>DNS responding DC01.CORP.LOCAL; Fake SYSVOL directory created.</td>
-            <td><code>0.72</code> - Registry mtime check vulnerable.</td>
+            <td><code>{{ m.applied_at }}</code></td>
+            <td><strong>{{ m.primitive }}</strong></td>
+            <td>
+              {% for ch in m.changes %}
+                <code>[{{ ch.kind }}]</code> {{ ch.operation }} {{ ch.target }}<br>
+              {% endfor %}
+            </td>
+            <td><code>{{ m.plausibility_score }}</code> - {{ m.plausibility_notes }}</td>
           </tr>
+          {% else %}
+          <tr>
+            <td colspan="4" style="text-align: center; color: var(--text-muted); padding: 18px;">No deception mutations applied in this session.</td>
+          </tr>
+          {% endfor %}
         </tbody>
       </table>
     </div>

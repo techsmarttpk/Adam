@@ -1,0 +1,105 @@
+# Compound / Attack Campaign Policy Rules
+- id: RULE-CMP-001
+  severity: HIGH
+  rationale: "Compound Credential Harvesting campaign detected; plant decoy credential artifacts."
+  when:
+    intent: CAMPAIGN_CREDENTIAL_HARVEST
+    confidence_gte: 0.85
+  then:
+    action: PLANT_DECOY_CREDENTIAL_ARTIFACTS
+    action_category: MUTATE
+    default_verdict: EXECUTE
+    priority: 95
+  budget:
+    max_per_session: 1
+    cooldown_seconds: 30
+
+- id: RULE-CMP-002
+  severity: CRITICAL
+  rationale: "Compound Lateral Movement campaign detected; synthesize domain topology."
+  when:
+    intent: CAMPAIGN_LATERAL_MOVEMENT
+    confidence_gte: 0.90
+  then:
+    action: SYNTHESIZE_DOMAIN_TOPOLOGY
+    action_category: MUTATE
+    default_verdict: EXECUTE
+    priority: 98
+  budget:
+    max_per_session: 1
+    cooldown_seconds: 30
+
+- id: RULE-CMP-003
+  severity: CRITICAL
+  rationale: "Compound Ransomware campaign detected; activate file system snapshot."
+  when:
+    intent: CAMPAIGN_RANSOMWARE
+    confidence_gte: 0.90
+  then:
+    action: ACTIVATE_FILE_SYSTEM_SNAPSHOT
+    action_category: MEASUREMENT
+    default_verdict: EXECUTE
+    priority: 100
+  budget:
+    max_per_session: 1
+    cooldown_seconds: 30
+
+- id: RULE-CMP-004
+  severity: HIGH
+  rationale: "Compound Sandbox Evasion campaign detected; spoof hardware identity."
+  when:
+    intent: CAMPAIGN_SANDBOX_EVASION
+    confidence_gte: 0.85
+  then:
+    action: SPOOF_HARDWARE_IDENTITY
+    action_category: MUTATE
+    default_verdict: EXECUTE
+    priority: 95
+  budget:
+    max_per_session: 1
+    cooldown_seconds: 30
+
+- id: RULE-CMP-005
+  severity: CRITICAL
+  rationale: "Compound C2 Establishment campaign detected; activate C2 sinkhole."
+  when:
+    intent: CAMPAIGN_C2_ESTABLISHMENT
+    confidence_gte: 0.85
+  then:
+    action: ACTIVATE_C2_SINKHOLE
+    action_category: MUTATE
+    default_verdict: EXECUTE
+    priority: 98
+  budget:
+    max_per_session: 1
+    cooldown_seconds: 30
+
+- id: RULE-CMP-006
+  severity: HIGH
+  rationale: "Compound Data Collection campaign detected; plant decoy documents."
+  when:
+    intent: CAMPAIGN_DATA_COLLECTION
+    confidence_gte: 0.85
+  then:
+    action: PLANT_DECOY_DOCUMENTS
+    action_category: MUTATE
+    default_verdict: EXECUTE
+    priority: 90
+  budget:
+    max_per_session: 1
+    cooldown_seconds: 30
+
+- id: RULE-CMP-007
+  severity: HIGH
+  rationale: "Compound Persistence campaign detected; observe persistent footprint."
+  when:
+    intent: CAMPAIGN_PERSISTENCE
+    confidence_gte: 0.85
+  then:
+    action: NONE
+    action_category: OBSERVE
+    default_verdict: OBSERVE
+    priority: 90
+  budget:
+    max_per_session: 5
+    cooldown_seconds: 15

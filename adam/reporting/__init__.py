@@ -1,0 +1,1 @@
+# Reports generator package init

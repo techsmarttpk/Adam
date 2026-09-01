@@ -1,0 +1,90 @@
+# Payload & Unpacking Policy Rules
+- id: RULE-PAYLOAD-001
+  severity: HIGH
+  rationale: "Payload decryption detected; activate EPT memory capture."
+  when:
+    intent: PAYLOAD_DECRYPTION
+    confidence_gte: 0.80
+  then:
+    action: ACTIVATE_EPT_MEMORY_CAPTURE
+    action_category: MEASUREMENT
+    default_verdict: EXECUTE
+    priority: 85
+  budget:
+    max_per_session: 2
+    cooldown_seconds: 20
+
+- id: RULE-PAYLOAD-002
+  severity: HIGH
+  rationale: "Payload decompression detected; activate EPT memory capture."
+  when:
+    intent: PAYLOAD_DECOMPRESSION
+    confidence_gte: 0.80
+  then:
+    action: ACTIVATE_EPT_MEMORY_CAPTURE
+    action_category: MEASUREMENT
+    default_verdict: EXECUTE
+    priority: 85
+  budget:
+    max_per_session: 2
+    cooldown_seconds: 20
+
+- id: RULE-PAYLOAD-003
+  severity: HIGH
+  rationale: "Payload unpacking detected; activate memory monitor."
+  when:
+    intent: PAYLOAD_UNPACKING
+    confidence_gte: 0.80
+  then:
+    action: ACTIVATE_MEMORY_MONITOR
+    action_category: MEASUREMENT
+    default_verdict: EXECUTE
+    priority: 85
+  budget:
+    max_per_session: 2
+    cooldown_seconds: 20
+
+- id: RULE-PAYLOAD-004
+  severity: CRITICAL
+  rationale: "Reflective payload loading; activate EPT shadow hook."
+  when:
+    intent: PAYLOAD_REFLECTIVE_LOAD
+    confidence_gte: 0.85
+  then:
+    action: ACTIVATE_EPT_SHADOW_HOOK
+    action_category: MEASUREMENT
+    default_verdict: EXECUTE
+    priority: 95
+  budget:
+    max_per_session: 2
+    cooldown_seconds: 20
+
+- id: RULE-PAYLOAD-005
+  severity: CRITICAL
+  rationale: "Staged payload execution; enable stage tracking."
+  when:
+    intent: PAYLOAD_STAGED_EXECUTION
+    confidence_gte: 0.85
+  then:
+    action: ENABLE_STAGE_TRACKING
+    action_category: MEASUREMENT
+    default_verdict: EXECUTE
+    priority: 95
+  budget:
+    max_per_session: 2
+    cooldown_seconds: 20
+
+- id: RULE-PAYLOAD-006
+  severity: CRITICAL
+  rationale: "In-memory payload execution; activate memory monitor."
+  when:
+    intent: PAYLOAD_MEMORY_EXECUTION
+    confidence_gte: 0.85
+  then:
+    action: ACTIVATE_MEMORY_MONITOR
+    action_category: MEASUREMENT
+    default_verdict: EXECUTE
+    priority: 95
+  budget:
+    max_per_session: 2
+    cooldown_seconds: 20

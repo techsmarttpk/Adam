@@ -49,7 +49,7 @@ decision in Phase 2 and beyond must be traceable to a section of this document.
 ### 1.2 What is in scope
 
 - A single-host analysis platform: one orchestrator process on the Linux/Windows
-  host, one disposable Windows guest VM under VirtualBox.
+  host, one disposable Windows guest VM under QEMU.
 - Ingestion of runtime telemetry from Sysmon, ProcMon, and Wireshark.
 - Fusion of that telemetry into a semantic event stream.
 - Policy-driven, closed-loop mutation of the guest environment during execution.
@@ -57,10 +57,10 @@ decision in Phase 2 and beyond must be traceable to a section of this document.
 
 ### 1.3 What is explicitly out of scope
 
-- Novel hypervisor or virtualisation work. VirtualBox is a commodity dependency,
+- Novel hypervisor or virtualisation work. QEMU is a commodity dependency,
   not a contribution.
 - Anti-anti-VM hardening beyond a documented baseline. We acknowledge that
-  VirtualBox is detectable; the research claim does not depend on evading
+  QEMU is detectable; the research claim does not depend on evading
   detection.
 - Multi-tenant, cloud-scale, or clustered operation. Section 18 shows the seams
   where this could be added; we do not build it.
@@ -180,7 +180,7 @@ Dependency direction is strictly downward. L1 imports nothing from L2–L5.
  │  │ion ││icy ││ept ││Wtr││ Gen   │  │         │  │  SAMPLE (detonated)│  │
  │  └────┘└────┘└─┬──┘└───┘└───────┘  │         │  └────────────────────┘  │
  │                │                   │         │                          │
- │  ┌─────────────▼────────────────┐  │  VBoxManage / guest agent          │
+ │  ┌─────────────▼────────────────┐  │  QEMU / guest agent                │
  │  │  Sandbox Controller          │──┼────────▶│  snapshot · exec · mutate│
  │  └──────────────────────────────┘  │         └──────────────────────────┘
  │                                    │
@@ -304,7 +304,8 @@ Treat every change as a breaking change.
 
 **Owns.** The full lifecycle of a guest VM: snapshot restore, boot, readiness
 probe, sample injection, detonation, telemetry-collector startup, timed
-teardown, snapshot rollback, artefact retrieval. Wraps `VBoxManage` behind an
+teardown, snapshot rollback, artefact retrieval. Wraps QEMU process and image
+management behind an
 interface. Owns the guest agent script and the host↔guest command channel.
 Owns the retry/timeout semantics for every VM operation.
 
@@ -318,17 +319,8 @@ database directly. Know that a Policy Engine exists.
 async, every method has a timeout from config, and `teardown()` is idempotent
 and safe to call from a `finally` block after any failure. The controller is a
 finite state machine with explicit states (`COLD`, `RESTORING`, `BOOTING`,
-`READY`, `ARMED`, `RUNNING`, `COMPLETED`, `TEARDOWN`, `FAILED`) and illegal
-transitions raise `SandboxStateError`. `COMPLETED` exists to distinguish "the
-sample has finished executing" from `RUNNING`'s "the sample is executing right
-now" -- a distinction that costs nothing today (the FSM's re-arm-only-after-a-
-real-restore guarantee holds identically either way) but that later milestones
-needing to act only while a sample is genuinely alive (concurrent collector
-attachment, in-flight deception mutation) will depend on. `detonate()` moves
-`ARMED -> RUNNING` on dispatch and `RUNNING -> COMPLETED` synchronously, right
-before returning, so a caller polling `.state` from another task sees an
-honest read throughout. `teardown()` remains callable from every state above,
-including `COMPLETED`, and always ends in `COLD`.
+`READY`, `ARMED`, `RUNNING`, `TEARDOWN`, `FAILED`) and illegal transitions raise
+`SandboxStateError`.
 
 ### 5.3 Collectors (`adam/collectors`)
 
@@ -431,7 +423,7 @@ internally consistent naming, and a self-assessed `plausibility_score` recorded
 with every mutation (see §2.4).
 
 **Must not.** Read policy YAML. Re-evaluate whether a mutation is warranted —
-the decision has already been made. Call `VBoxManage` directly; it goes through
+the decision has already been made. Call QEMU tooling directly; it goes through
 `ISandboxController`.
 
 **Exposes.** `IDeceptionEngine` — `execute(PolicyDecision) -> MutationResult`,
@@ -994,9 +986,9 @@ project-adam/
 │   │   ├── __init__.py
 │   │   ├── controller.py
 │   │   ├── state.py                 # FSM
-│   │   ├── vbox/
+│   │   ├── qemu/
 │   │   │   ├── __init__.py
-│   │   │   ├── client.py            # VBoxManage wrapper
+│   │   │   ├── client.py            # QEMU process wrapper
 │   │   │   └── snapshot.py
 │   │   ├── guest/
 │   │   │   ├── __init__.py
@@ -1221,7 +1213,7 @@ every concurrent edit into a non-overlapping diff that git merges automatically.
         │     │     │     │     │     │     │     │     │     │     │     │
  ALL   ╞═ contracts + skeleton ═╡
         │  frozen ▲
- DEV A  ╞══ VBox control ══╪══ collectors ══╪══ agent ══╪═ orchestrator ═╡
+ DEV A  ╞══ QEMU control ═╪══ collectors ══╪══ agent ══╪═ orchestrator ═╡
         │           corpus ▲ (unblocks B/C/D)
  DEV B        ╞═ fakes ═╪══ normalise ══╪══ correlate ══╪══ detectors ══╡
  DEV C        ╞═ fakes ═╪══ rule DSL ══╪══ primitives ══╪══ tuning ═════╡
@@ -1292,19 +1284,13 @@ detonation.
 
 ```toml
 [sandbox]
-vm_name               = "ADAM-WIN10"
-snapshot_name         = "clean"
-boot_timeout_s        = 120
-guest_ready_timeout_s = 150     # added Milestone 4 -- split from boot_timeout_s
-                                 # once VM-power-on and Guest-Additions-ready
-                                 # proved to be separately timed, separately
-                                 # variable phases (see Milestone 3 investigation)
-detonation_timeout_s  = 300
-network_mode          = "SIMULATED"     # HOST_ONLY | SIMULATED | INTERNET
-vbox_manage_path      = "/usr/bin/VBoxManage"
-# guest_username / guest_password are intentionally NOT here -- see
-# section 12.3. They resolve only from environment variables / .env
-# (ADAM__SANDBOX__GUEST_USERNAME, ADAM__SANDBOX__GUEST_PASSWORD).
+vm_name           = "ADAM-WIN10"
+snapshot_name     = "clean"
+boot_timeout_s    = 120
+detonation_timeout_s = 300
+network_mode      = "SIMULATED"     # HOST_ONLY | SIMULATED | INTERNET
+qemu_system_path  = "/usr/bin/qemu-system-x86_64"
+qemu_img_path     = "/usr/bin/qemu-img"
 
 [fusion]
 window_seconds       = 5.0
@@ -1345,14 +1331,7 @@ directory  = "logs"
 - `dry_run = true` runs the entire pipeline and records decisions with verdict
   `DRY_RUN` without touching the guest. This is the **control arm** of the
   experiment and also the safest way to develop policy.
-- Secrets never enter TOML. `.env` only, and `.env` is gitignored. Concrete
-  case (Milestone 4): `sandbox.guest_username` / `sandbox.guest_password` are
-  required `SandboxSettings` fields with no TOML representation at all --
-  they resolve exclusively from `ADAM__SANDBOX__GUEST_USERNAME` /
-  `ADAM__SANDBOX__GUEST_PASSWORD`, sourced from real environment variables or
-  `.env`. Config loading fails fast with a validation error if neither is
-  set, rather than letting `SandboxController` fail later with a confusing
-  guest authentication error.
+- Secrets never enter TOML. `.env` only, and `.env` is gitignored.
 
 ---
 
@@ -1423,7 +1402,7 @@ AdamError
 ├── ConfigError              invalid or missing configuration
 ├── ContractViolationError   a message failed schema validation
 ├── SandboxError
-│   ├── VMOperationError     VBoxManage failed
+│   ├── VMOperationError     QEMU operation failed
 │   ├── SandboxStateError    illegal FSM transition
 │   ├── GuestTimeoutError    guest unresponsive
 │   └── SampleTransferError

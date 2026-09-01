@@ -1,0 +1,1 @@
+# ADAM - Main package init

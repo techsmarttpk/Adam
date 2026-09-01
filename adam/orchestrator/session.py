@@ -1,571 +1,327 @@
-"""
-adam/orchestrator/session.py
-
-SessionOrchestrator -- ARCHITECTURE.md section 6.1 (session lifecycle) and
-section 8.4's bus subscription map ("Orchestrator | SessionLifecycle |
-all"). Ties SandboxController, the collectors, and EventBus together into
-one coordinated run: prepare -> arm -> detonate -> collect -> teardown,
-producing a populated `artifacts/<session_id>/raw.jsonl` and a final
-AnalysisSession. docs/dev-a-environment-and-roadmap.md Phase 8.
-
-This module coordinates existing components; it does not reimplement any
-of them. It calls SandboxController's already-tested methods, drains
-already-tested BaseCollector subclasses via iter_events(), and publishes
-onto an already-tested EventBus. Its own job is purely: ordering, the
-collector-to-bus/persistence bridge the roadmap calls out explicitly (see
-below), and guaranteed cleanup.
-
-Step order matches the project's own stated Phase 8 execution model
-exactly (config load/validate happens before this is ever called --
-Settings() itself fails fast on construction per Milestone 4 -- so this
-method starts from an already-validated `config: Settings`):
-
-    3-5. controller.prepare()          (COLD -> RESTORING -> BOOTING -> READY,
-                                         one call, per SandboxController's
-                                         own design)
-    6.   bus.start()
-    7.   collector.start() for each collector, then spawn one pump task per
-         collector (see _pump() below)
-    8.   controller.arm(host_sample_path, guest_target_path)
-    9.   controller.detonate(sample)
-    10-11. (continuous, running in the background since step 7) each pump
-         task drains its collector's iter_events(), writes every RawEvent to
-         raw.jsonl FIRST, then publishes it onto the bus -- see _pump()'s
-         docstring for why that order, not the reverse.
-    12.  collector.stop() for each collector (lets each pump task's
-         iter_events() drain the last buffered events and return)
-    13.  bus.drain(timeout)
-    14.  controller.teardown()
-    15.  build and return AnalysisSession
-    16.  guaranteed via one try/except/finally wrapping steps 3-14 -- see
-         run_session()'s own docstring for the FAILED vs PARTIAL vs ABORTED
-         distinction.
-
-Collector-to-bus bridging (roadmap's own words, Phase 2 file list note):
-"each collector's iter_events() yields RawEvents that get published onto
-the bus by a thin wrapper in the orchestrator (Phase 8), not by the
-collector itself calling bus.publish() directly, so collectors stay
-unit-testable without a live bus." That thin wrapper is `_pump()` below.
-
-Host-path gap, disclosed. The roadmap's own `SessionOrchestrator.run_session
-(self, sample: SampleRef, config: Settings) -> AnalysisSession` signature
-does not carry a host-side path to the sample file (`SampleRef` only has
-sha256/md5/filename/size_bytes/file_type -- see adam/contracts/session.py),
-but `SandboxController.arm()` needs a real host filesystem path to copy
-from. This is the same category of gap already disclosed for `detonate()`
-before Phase 2 existed (docs/implementation-audit.md, Phase 4 Deviations).
-Resolved here with an explicit, required `host_sample_path` keyword-only
-parameter on `run_session()` -- the CLI layer (adam/cli/run.py) has this
-path directly from its own command-line argument, so this is a minimal,
-necessary, disclosed deviation from the roadmap's literal two-argument
-signature, not a guess at unspecified architecture.
-
-Guest-telemetry-source gap -- RESOLVED (Phase 5). SysmonCollector/
-ProcmonCollector/NetworkCollector each tail a HOST-side file path (an EVTX
-file, a CSV export, a tshark -T ek export). Originally closed by
-adam.sandbox.guest.agent.agent.GuestAgent (a host-orchestrated
-VBoxManage-guestcontrol automation) via an optional `guest_agent`
-constructor parameter that drives Procmon/tshark capture around detonate()
-and exports Sysmon/Procmon/tshark telemetry to real host paths afterward,
-from which this class builds and runs collectors automatically -- see
-run_session()'s own step-by-step comments below for exactly where.
-
-Phase 5 revision -- GuestChannel interface. The constructor parameter is
-now typed `GuestChannel | None` (adam/sandbox/guest/channel.py), not
-`GuestAgent | None` -- SessionOrchestrator calls only the three methods
-that Protocol defines (verify_tools/start_captures/stop_export_and_fetch)
-and does not know or care whether the concrete object passed in is
-VBoxGuestChannel (wrapping the original, untouched GuestAgent) or
-HTTPGuestChannel (talking to the guest-resident PowerShell HTTP agent) --
-Runner (adam/orchestrator/runner.py) decides which one to construct, based
-on `Settings.guest_backend`. The parameter name stays `guest_agent` for
-backward compatibility with every existing caller/test that already
-constructs a SessionOrchestrator with this keyword; only its accepted
-type widened. SessionOrchestrator still does not duplicate the backend's
-own work, and still reuses the exact same collector classes and _pump()
-bridge as the pre-existing, constructor-injected `collectors` path,
-unchanged. `guest_agent=None` (the default) preserves this class's
-original behavior byte-for-byte, so every existing offline verification
-scenario built against constructor-injected FakeCollectors continues to
-exercise the same code path it always has.
-"""
-
-from __future__ import annotations
-
 import asyncio
 import logging
-import uuid
-from collections.abc import Sequence
-from datetime import datetime, timezone
-from pathlib import Path
-
-from pydantic import BaseModel, ConfigDict
-
-from adam.collectors.base import BaseCollector
-from adam.collectors.network import NetworkCollector
-from adam.collectors.procmon import ProcmonCollector
-from adam.collectors.sysmon import SysmonCollector
-from adam.common.bus import EventBus
-from adam.common.config import Settings
-from adam.contracts.enums import Arm, NetworkMode, SessionStatus
-from adam.contracts.envelope import Envelope
+import time
+from typing import Optional, List, Dict, Any
+from adam.contracts.session import AnalysisSession, SessionMetrics
+from adam.contracts.enums import SessionStatus
 from adam.contracts.raw_event import RawEvent
-from adam.contracts.session import AnalysisSession, SampleRef, SessionConfig, SessionMetrics
-from adam.orchestrator.persistence import RawEventWriter
+from adam.contracts.semantic_event import SemanticEvent
+from adam.contracts.policy_decision import PolicyDecision
+from adam.contracts.mutation import MutationResult
+from adam.common.bus import EventBus
+from adam.common.timeutil import now_utc
 from adam.sandbox.controller import SandboxController
-from adam.sandbox.guest.channel import GuestChannel, TelemetryArtifacts
+from adam.fusion.engine import FusionEngine
+from adam.policy.engine import PolicyEngine
+from adam.deception.engine import DeceptionEngine
+from adam.db.repositories.sessions import SessionRepository
+from adam.db.repositories.events import EventRepository
+from adam.db.repositories.decisions import DecisionRepository
+from adam.db.repositories.mutations import MutationRepository
 
-logger = logging.getLogger(__name__)
+# Autonomous AMTD & VMI / DRL Framework Subsystems
+from adam.sandbox.vmi.ept_controller import EPTController
+from adam.sandbox.vmi.syscall_virtualizer import SyscallVirtualizer
+from adam.sandbox.vmi.kernel_polymorphism import KernelPolymorphismEngine, MitigationState
+from adam.sandbox.vmi.dkom_tracker import DKOMTracker
+from adam.sandbox.vmi.differential_memory import DifferentialMemoryAnalyzer
+from adam.policy.drl.encoder import AttentionEventEncoder
+from adam.policy.drl.dual_stream import DualStreamPolicy, PolicyAction
+from adam.policy.drl.gym_env import ActionType
+from adam.deception.synthetic.user_simulator import UserSimulator
+from adam.deception.synthetic.decoys import SyntheticDecoyEngine
+from adam.deception.c2.sinkhole import C2Sinkhole
+from adam.reporting.intelligence import ThreatIntelligenceSynthesizer
 
+# Research-Grade Engines: Causal Provenance, Environment State, Deception Memory, Chains & Backfire
+from adam.core.provenance.tracker import CausalProvenanceEngine
+from adam.core.environment.state_model import EnvironmentStateModel, CrossSourceConsistencyChecker
+from adam.policy.memory.store import DeceptionMemoryStore
+from adam.policy.backfire import DeceptionBackfireDetector
+from adam.policy.chains.planner import DeceptionChainPlanner
+from adam.policy.adaptive_budget import AdaptiveBudgetManager
+from adam.policy.counterfactual import CounterfactualEvaluator
 
-def build_collectors_from_telemetry(session_id: str, artifacts: TelemetryArtifacts) -> list[BaseCollector]:
-    """
-    Step 10 of the Phase 5 guest-agent lifecycle: construct whichever
-    concrete collectors have a real, exported host path to tail. Mirrors
-    adam.orchestrator.runner.Runner._build_collectors()'s "only construct a
-    collector if its path is not None" rule exactly -- that method now
-    delegates here instead of duplicating the logic, so a CLI-override path
-    and a GuestAgent-exported path are wired into a collector identically.
-    Kept in this module (not runner.py) so SessionOrchestrator can call it
-    directly once GuestAgent.stop_export_and_fetch() returns, mid-session,
-    without runner.py needing visibility into a decision it isn't present
-    for.
-    """
-    collectors: list[BaseCollector] = []
-    if artifacts.sysmon_evtx_path is not None:
-        collectors.append(SysmonCollector(artifacts.sysmon_evtx_path, session_id=session_id))
-    if artifacts.procmon_csv_path is not None:
-        collectors.append(ProcmonCollector(artifacts.procmon_csv_path, session_id=session_id))
-    if artifacts.network_ek_json_path is not None:
-        collectors.append(NetworkCollector(artifacts.network_ek_json_path, session_id=session_id))
-    return collectors
-
-
-class SessionLifecycle(BaseModel):
-    """
-    Published onto the bus at each major session transition (section 8.4:
-    "Orchestrator | SessionLifecycle | all"). Provisional, not yet part of
-    the frozen adam.contracts boundary: ARCHITECTURE.md section 7 does not
-    give this message a JSON shape the way it does RawEvent/AnalysisSession
-    (it is only named in the section 8.4 subscription table), so this is
-    defined here rather than in adam/contracts/, the same reasoning
-    adam/contracts/interfaces.py's module docstring gives for
-    MutationRequest/ArtifactRef being provisional, in-file additions rather
-    than claims of a frozen section 7 shape.
-    """
-
-    model_config = ConfigDict(frozen=True, extra="forbid")
-
-    session_id: str
-    status: SessionStatus
-    detail: str
-    occurred_at: datetime
+logger = logging.getLogger("adam.orchestrator.session")
 
 
-def new_session_id() -> str:
-    """
-    Temporary session-ID generator, same disclosed-placeholder status as
-    the `uuid.uuid4()`-based IDs in adam/collectors/parsers/evtx.py and
-    pml.py: adam/common/ids.py (a real new_id(prefix) generator) does not
-    exist yet (tracked in docs/remaining-work-plan.md). Formatted to match
-    ARCHITECTURE.md section 7.1's own example style (`sess_YYYY_MM_DD_xxxx`)
-    for readability in artifact directory names and logs.
-    """
-    now = datetime.now(timezone.utc)
-    return f"sess_{now:%Y_%m_%d}_{uuid.uuid4().hex[:8]}"
+class SessionRunner:
+    """Autonomous AMTD Analysis Session Runner.
 
-
-class SessionOrchestrator:
-    """
-    Coordinates one SandboxController, one EventBus, and a fixed set of
-    already-constructed collectors through a full session. See module
-    docstring for the exact step order and the two disclosed gaps
-    (host_sample_path, guest-side collector sourcing) this class does not
-    attempt to solve.
+    Orchestrates real-time kernel mutation, attention-based event encoding,
+    dual-stream reinforcement learning, dead man's switch jumpstarts, causal provenance,
+    deception memory, backfire detection, and automated YARA / STIX 2.1 threat intelligence synthesis.
     """
 
     def __init__(
         self,
-        controller: SandboxController,
+        session: AnalysisSession,
         bus: EventBus,
-        collectors: Sequence[BaseCollector],
-        *,
-        artifacts_dir: str | Path = "artifacts",
-        guest_target_path_template: str = "C:\\ADAM\\samples\\{filename}",
-        bus_drain_timeout: float = 5.0,
-        post_detonation_drain_seconds: float = 0.5,
-        guest_agent: GuestChannel | None = None,
+        sandbox: SandboxController,
+        fusion: FusionEngine,
+        policy: PolicyEngine,
+        deception: DeceptionEngine,
+        session_repo: SessionRepository,
+        event_repo: EventRepository,
+        decision_repo: DecisionRepository,
+        mutation_repo: MutationRepository,
+        idle_timeout_seconds: float = 8.0,
     ) -> None:
-        self._controller = controller
-        self._bus = bus
-        self._collectors = list(collectors)
-        self._artifacts_dir = Path(artifacts_dir)
-        self._guest_target_path_template = guest_target_path_template
-        self._bus_drain_timeout = bus_drain_timeout
-        self._post_detonation_drain_seconds = post_detonation_drain_seconds
-        # Phase 5 addition. None (the default) preserves this class's
-        # pre-Phase-5 behavior exactly -- see module docstring's
-        # "Guest-telemetry-source gap -- RESOLVED" note.
-        self._guest_agent = guest_agent
+        self.session = session
+        self.bus = bus
+        self.sandbox = sandbox
+        self.fusion = fusion
+        self.policy = policy
+        self.deception = deception
+        self.session_repo = session_repo
+        self.event_repo = event_repo
+        self.decision_repo = decision_repo
+        self.mutation_repo = mutation_repo
+        self.idle_timeout_seconds = idle_timeout_seconds
 
-    def _guest_target_path_for(self, sample: SampleRef) -> str:
-        return self._guest_target_path_template.format(filename=sample.filename)
+        self.raw_count = 0
+        self.sem_count = 0
+        self.dec_count = 0
+        self.mut_count = 0
+        self.post_mut_count = 0
+        self.active_mutation_id: Optional[str] = None
+        self._subs = []
 
-    async def _publish_lifecycle(self, session_id: str, status: SessionStatus, detail: str) -> None:
-        lifecycle = SessionLifecycle(
-            session_id=session_id, status=status, detail=detail, occurred_at=datetime.now(timezone.utc)
-        )
-        envelope: Envelope[SessionLifecycle] = Envelope(
-            message_id=f"msg_{uuid.uuid4().hex}",
-            message_type="SessionLifecycle",
-            session_id=session_id,
-            correlation_id=session_id,
-            emitted_at=datetime.now(timezone.utc),
-            emitter="orchestrator.session",
-            payload=lifecycle,
-        )
-        try:
-            await self._bus.publish(envelope)
-        except Exception:
-            logger.exception("failed to publish SessionLifecycle(%s) for session=%s", status.value, session_id)
+        # Autonomous Subsystems
+        self.ept_controller = EPTController(vm_id=session.session_id)
+        self.syscall_virtualizer = SyscallVirtualizer()
+        self.kernel_poly = KernelPolymorphismEngine()
+        self.dkom_tracker = DKOMTracker()
+        self.memory_analyzer = DifferentialMemoryAnalyzer()
+        self.attention_encoder = AttentionEventEncoder()
+        self.drl_policy = DualStreamPolicy()
+        self.user_simulator = UserSimulator()
+        self.decoy_engine = SyntheticDecoyEngine(session_id=session.session_id)
+        self.c2_sinkhole = C2Sinkhole()
+        self.intel_synthesizer = ThreatIntelligenceSynthesizer(session_id=session.session_id)
 
-    async def _pump(self, collector: BaseCollector, session_id: str, writer: RawEventWriter) -> None:
-        """
-        The "thin wrapper" the roadmap's Phase 2 notes describe: drains one
-        collector's iter_events() for the lifetime of the session.
+        # Research Layer Engines
+        self.provenance_engine = CausalProvenanceEngine(default_window_ms=30000)
+        self.env_state = EnvironmentStateModel()
+        self.deception_memory = DeceptionMemoryStore()
+        self.backfire_detector = DeceptionBackfireDetector()
+        self.chain_planner = DeceptionChainPlanner()
+        self.adaptive_budget = AdaptiveBudgetManager(global_max_mutations=15)
+        self.counterfactual_evaluator = CounterfactualEvaluator()
 
-        Writes to raw.jsonl BEFORE publishing to the bus, deliberately: per
-        ADR-005 and persistence.py's own module docstring, raw.jsonl is the
-        authoritative record and must not be affected by the bus's lossy
-        drop-under-backpressure delivery (section 8.2/8.3) -- if publishing
-        raced ahead of persisting, a dropped bus message would have no
-        bearing on durability, but the reverse ordering keeps that
-        guarantee true by construction rather than by coincidence.
+        self.last_event_time = time.time()
+        self.event_history: List[Dict[str, Any]] = []
+        self.intents_history: List[str] = []
+        self.accessed_categories: List[str] = []
+        self.forced_mutations_triggered = 0
 
-        correlation_id policy: since Fusion (which would normally assign a
-        shared correlation_id across a cluster of related raw events) does
-        not exist yet, each RawEvent's own event_id is used as its
-        correlation_id -- every event starts as its own correlation chain,
-        joinable later. Disclosed placeholder, not a claim this is Fusion's
-        real correlation logic.
-        """
-        async for event in collector.iter_events():
-            try:
-                await writer.write(event)
-            except Exception:
-                logger.exception(
-                    "session=%s collector=%s failed to persist RawEvent -- event lost",
-                    session_id,
-                    collector.source_name,
-                )
-                continue
+    async def run(self, sample_path: str) -> None:
+        logger.info(f"Starting AMTD autonomous execution session {self.session.session_id} under experiment {self.session.experiment_id}")
+        self.session.status = SessionStatus.RUNNING
+        self.session_repo.save(self.session)
+        self.sandbox.set_session_id(self.session.session_id)
 
-            envelope: Envelope[RawEvent] = Envelope(
-                message_id=f"msg_{uuid.uuid4().hex}",
-                message_type="RawEvent",
-                session_id=session_id,
-                correlation_id=event.event_id,
-                emitted_at=datetime.now(timezone.utc),
-                emitter=f"collector.{collector.source_name}",
-                payload=event,
-            )
-            try:
-                await self._bus.publish(envelope)
-            except Exception:
-                logger.exception(
-                    "session=%s collector=%s failed to publish RawEvent onto bus (already durable in raw.jsonl)",
-                    session_id,
-                    collector.source_name,
-                )
-
-    async def run_session(
-        self,
-        sample: SampleRef,
-        config: Settings,
-        *,
-        host_sample_path: str,
-        session_id: str | None = None,
-        experiment_id: str = "adhoc",
-        arm: Arm = Arm.CONTROL,
-        sample_timeout_seconds: int = 300,
-    ) -> AnalysisSession:
-        """
-        Runs one full session. See module docstring for step order.
-
-        `session_id`: normally left as None, in which case a fresh ID is
-        generated internally (new_session_id()). Accepted as an explicit
-        override because the injected `collectors` were already
-        constructed with a `session_id` baked into their own constructor
-        (SysmonCollector/ProcmonCollector/NetworkCollector all tag every
-        RawEvent they produce with the session_id they were built with) --
-        a caller building collectors ahead of time (see runner.py) must
-        generate the ID first via new_session_id(), pass it to both the
-        collectors' constructors and here, so every RawEvent's
-        `session_id` field and this session's own `session_id` agree. If
-        left None, the auto-generated ID obviously won't match whatever
-        (if anything) was baked into already-constructed collectors --
-        the caller's responsibility to keep these consistent when
-        pre-building collectors, same as any other dependency-injected
-        component.
-
-        Status/error semantics on the returned AnalysisSession:
-          - COMPLETED: every step succeeded.
-          - FAILED: something failed before collectors were ever started
-            (prepare() itself, or bus.start()) -- no telemetry could
-            possibly have been captured, so there is nothing "partial"
-            about the result.
-          - PARTIAL: something failed after collectors were started
-            (arm(), detonate(), or anything else mid-session) --
-            ARCHITECTURE.md section 14.4: "A session that errored still
-            produces a report -- marked PARTIAL. Partial results are still
-            evidence." Whatever raw.jsonl accumulated before the failure
-            is retained.
-          - ABORTED: the session was cancelled (Ctrl-C / task
-            cancellation). Deliberately NOT re-raised as CancelledError --
-            see the try/except below for why this method's contract is to
-            always return a well-formed AnalysisSession, including on
-            cancellation, matching this project's requirement that a
-            session "exit cleanly even if failures occur."
-
-        teardown() is called unconditionally in the finally block and never
-        raises (SandboxController's own guarantee, section 14.4) -- the VM
-        is restored to `clean` regardless of what happened above it.
-
-        Phase 5 (guest_agent, constructor parameter): when supplied, this
-        method additionally starts Procmon/tshark captures after arm() and,
-        after detonate() completes, stops those captures, exports Sysmon/
-        Procmon/tshark telemetry, copies it to the host, and automatically
-        builds+starts the matching collectors -- see the inline comments
-        around arm()/detonate() below for exactly where. A source already
-        covered by a constructor-injected collector (the pre-Phase-5 CLI-
-        override path) is never re-captured. `collectors_started` (and
-        therefore the PARTIAL-vs-FAILED distinction above) is set True by
-        either path, whichever starts a collector first.
-        """
-        if session_id is None:
-            session_id = new_session_id()
-        started_at = datetime.now(timezone.utc)
-        guest_target_path = self._guest_target_path_for(sample)
-
-        session_config = SessionConfig(
-            deception_enabled=False,  # Deception Engine (section 5.6, Dev C) does not exist yet
-            policy_ruleset="none",  # Policy Engine (section 5.5, Dev C) does not exist yet
-            vm_profile=config.sandbox.vm_name,  # VMProfile/profiles.py does not exist yet -- vm_name stands in, disclosed
-            timeout_seconds=sample_timeout_seconds,
-            network_mode=NetworkMode.HOST_ONLY,  # not yet a real SandboxSettings field -- safest disclosed default
+        # Seed initial intelligence
+        self.intel_synthesizer.record_artifact(
+            "PAYLOAD_HASH", self.session.sample.sha256, confidence=1.0, description="Detonated sample SHA256"
         )
 
-        artifact_path = self._artifacts_dir / session_id / "raw.jsonl"
-        writer = RawEventWriter(artifact_path)
-
-        status = SessionStatus.PENDING
-        error: str | None = None
-        collectors_started = False
-        pump_tasks: list[asyncio.Task[None]] = []
-        # Phase 5: collectors GuestAgent builds AFTER detonate() (once
-        # telemetry has actually been exported to real host paths), kept
-        # separate from self._collectors/pump_tasks above -- which remain
-        # exactly the pre-Phase-5 constructor-injected, started-before-
-        # detonate path -- and merged with them only in the finally block's
-        # stop/await loops below, so neither path's own logic changes.
-        guest_collectors: list[BaseCollector] = []
-        guest_pump_tasks: list[asyncio.Task[None]] = []
-
-        await writer.open()
-        await self._publish_lifecycle(session_id, status, "session created")
+        self._subs.append(self.bus.subscribe(RawEvent, self._handle_raw_event, name="raw-to-fusion"))
+        self._subs.append(self.bus.subscribe(SemanticEvent, self._handle_semantic_event, name="sem-to-policy"))
+        self._subs.append(self.bus.subscribe(PolicyDecision, self._handle_decision, name="dec-to-deception"))
+        self._subs.append(self.bus.subscribe(MutationResult, self._handle_mutation, name="mutation-tracker"))
 
         try:
-            status = SessionStatus.PREPARING
-            await self._publish_lifecycle(session_id, status, "restoring snapshot and booting guest")
-            await self._controller.prepare()
+            await self.sandbox.prepare()
+            await self.sandbox.detonate(sample_path)
 
-            await self._bus.start()
+            timeout = self.session.config.timeout_seconds
+            logger.info(f"Detonation active, running AMTD session loop with max window {timeout}s...")
 
-            for collector in self._collectors:
-                await collector.start()
-                # Set True as soon as the FIRST collector starts, not only
-                # after the whole loop succeeds: if a later collector's
-                # start() raises, the ones that already started may have
-                # captured something real, so the failure must still be
-                # classified PARTIAL, not FAILED. stop() in the finally
-                # block below is safe to call on every collector regardless
-                # (BaseCollector.stop() is a no-op if the collector's task
-                # was never created).
-                collectors_started = True
-                # Pump task spawned immediately after each collector starts,
-                # not batched after the whole loop: if a LATER collector's
-                # start() raises, this one's already-buffered events must
-                # still get drained and persisted, not silently lost.
-                pump_tasks.append(
-                    asyncio.create_task(
-                        self._pump(collector, session_id, writer),
-                        name=f"adam.orchestrator.pump.{collector.source_name}",
+            # Run adaptive execution loop with Dead Man's Switch / Idle Timeout checks
+            start_time = time.time()
+            while (time.time() - start_time) < timeout:
+                await asyncio.sleep(1.0)
+                time_since_last_event = time.time() - self.last_event_time
+
+                # Fail-Safe Dead Man's Switch: If malware is dormant, force state mutation
+                if time_since_last_event > self.idle_timeout_seconds:
+                    logger.warning(
+                        f"Dormancy detected ({time_since_last_event:.1f}s without events). "
+                        "Triggering emergency Forced State Mutation to jumpstart sample."
                     )
-                )
+                    await self._trigger_forced_state_mutation()
 
-            await self._controller.arm(host_sample_path, guest_target_path)
+            self.session.status = SessionStatus.COMPLETED
 
-            # Diagnostics addition: verify_tools() is a pre-existing public
-            # GuestAgent method that was previously never actually called
-            # by this class -- its up-front tool-availability and guest-
-            # workspace-directory diagnostics therefore never ran on a real
-            # session. Calling it here (no interface change, no new
-            # method -- just a call-site addition) is what makes those
-            # diagnostics actually appear in a real run's logs. Guarded the
-            # same defense-in-depth way as every other guest_agent call in
-            # this method, even though GuestAgent's own methods are
-            # documented to never raise.
-            if self._guest_agent is not None:
-                try:
-                    await self._guest_agent.verify_tools()
-                except Exception:
-                    logger.exception(
-                        "session=%s guest_agent.verify_tools raised unexpectedly -- continuing anyway",
-                        session_id,
-                    )
+        except Exception as e:
+            logger.error(f"Detonation run error: {e}", exc_info=True)
+            self.session.status = SessionStatus.FAILED
+            self.session.error = str(e)
 
-            # Phase 5, steps 2-3: start Procmon/tshark captures inside the
-            # guest, detached, before the sample runs. Sources already
-            # covered by a constructor-injected collector (a CLI override
-            # path -- see adam/orchestrator/runner.py) are skipped so
-            # GuestAgent never captures something that would just be
-            # discarded in favor of the override.
-            if self._guest_agent is not None:
-                overridden_sources = {c.source_name for c in self._collectors}
-                try:
-                    await self._guest_agent.start_captures(
-                        session_id,
-                        capture_procmon="procmon" not in overridden_sources,
-                        capture_network="network" not in overridden_sources,
-                    )
-                except Exception:
-                    # GuestAgent's own methods are documented to never raise
-                    # (partial-telemetry guarantee) -- guarded anyway, same
-                    # defense-in-depth convention as teardown()/
-                    # _publish_lifecycle() elsewhere in this method.
-                    logger.exception(
-                        "session=%s guest_agent.start_captures raised unexpectedly -- "
-                        "continuing detonation without guest-driven captures",
-                        session_id,
-                    )
-
-            status = SessionStatus.RUNNING
-            await self._publish_lifecycle(session_id, status, "detonating sample")
-            await self._controller.detonate(sample)
-
-            # Give constructor-injected collectors a short grace period to
-            # pick up trailing telemetry (e.g. process-exit events) before
-            # stop() cuts them off in the finally block below. Not used by
-            # guest-driven collectors below -- those don't exist yet at
-            # this point, and get their own, separate grace sleep once
-            # they're started.
-            await asyncio.sleep(self._post_detonation_drain_seconds)
-
-            # Phase 5, steps 6-10: stop captures, export telemetry in-guest,
-            # copy it to the host artifact directory, and automatically
-            # build+start the matching collectors -- no CLI arguments
-            # required (this phase's own stated goal). Sources already
-            # covered by a CLI override are skipped, same reasoning as
-            # start_captures() above.
-            if self._guest_agent is not None:
-                overridden_sources = {c.source_name for c in self._collectors}
-                try:
-                    artifacts = await self._guest_agent.stop_export_and_fetch(
-                        session_id,
-                        self._artifacts_dir / session_id,
-                        export_sysmon="sysmon" not in overridden_sources,
-                        export_procmon="procmon" not in overridden_sources,
-                        export_network="network" not in overridden_sources,
-                    )
-                except Exception:
-                    logger.exception(
-                        "session=%s guest_agent.stop_export_and_fetch raised unexpectedly -- "
-                        "no guest-driven telemetry available this session",
-                        session_id,
-                    )
-                    artifacts = TelemetryArtifacts()
-
-                guest_collectors = build_collectors_from_telemetry(session_id, artifacts)
-                for collector in guest_collectors:
-                    await collector.start()
-                    collectors_started = True  # same reasoning as the constructor-injected loop above
-                    guest_pump_tasks.append(
-                        asyncio.create_task(
-                            self._pump(collector, session_id, writer),
-                            name=f"adam.orchestrator.pump.{collector.source_name}",
-                        )
-                    )
-
-                if guest_collectors:
-                    # The exported files are already complete and static by
-                    # this point -- this sleep only needs to cover one poll
-                    # cycle (each collector's default poll_interval is
-                    # 0.1s) so the first (and only) poll ingests everything,
-                    # not a live-tailing grace period the way the sleep
-                    # above is for the constructor-injected path.
-                    await asyncio.sleep(self._post_detonation_drain_seconds)
-
-            status = SessionStatus.COMPLETED
-
-        except asyncio.CancelledError:
-            status = SessionStatus.ABORTED
-            error = "session cancelled (Ctrl-C / task cancellation)"
-            logger.warning("session=%s cancelled", session_id)
-        except Exception as exc:
-            status = SessionStatus.PARTIAL if collectors_started else SessionStatus.FAILED
-            error = f"{type(exc).__name__}: {exc}"
-            logger.exception("session=%s failed during %s", session_id, status.value)
         finally:
-            # self._collectors (constructor-injected, started before
-            # detonate) and guest_collectors (Phase 5, started after
-            # detonate/export/fetch -- empty if guest_agent is None or
-            # produced no telemetry) are stopped and drained together here;
-            # neither path's own start-up logic above needed to change.
-            for collector in (*self._collectors, *guest_collectors):
-                try:
-                    await collector.stop()
-                except Exception:
-                    logger.exception("session=%s collector=%s failed to stop", session_id, collector.source_name)
+            logger.info("Executing teardown and synthesizing threat intelligence...")
+            for sub in self._subs:
+                sub.task.cancel()
+            self._subs.clear()
 
-            for task in (*pump_tasks, *guest_pump_tasks):
-                try:
-                    await task
-                except Exception:
-                    logger.exception("session=%s a pump task raised unexpectedly", session_id)
+            await self.sandbox.collect_artifacts()
+            await self.sandbox.teardown()
 
-            # Published here, before drain() -- not after it, further down
-            # this function -- specifically so a live subscriber still has
-            # a running consumer task to actually receive it. drain()
-            # cancels every consumer task once queues empty, so anything
-            # published after that point would sit forever undelivered.
-            await self._publish_lifecycle(session_id, status, error or "session finished")
+            # Record final memory outcome
+            fingerprint = self.deception_memory.compute_behavioral_fingerprint(
+                intents_sequence=self.intents_history,
+                accessed_categories=self.accessed_categories,
+                network_destinations_count=len(self.c2_sinkhole.dga_domains_resolved),
+            )
+            for mut_id, events in self.provenance_engine.mutation_attributed_events.items():
+                self.deception_memory.record_outcome(
+                    fingerprint_hash=fingerprint,
+                    intent=self.intents_history[-1] if self.intents_history else "UNKNOWN",
+                    mutation_action=mut_id,
+                    yield_score=float(len(events) * 20.0),
+                    new_semantic_events=len(events),
+                    new_iocs=len(self.intel_synthesizer.artifacts),
+                    deception_detected=self.backfire_detector.has_backfired_on_mutation(mut_id),
+                )
 
-            try:
-                await self._bus.drain(timeout=self._bus_drain_timeout)
-            except Exception:
-                logger.exception("session=%s bus drain failed", session_id)
+            # Synthesize final YARA rules & STIX 2.1 bundle
+            yara_rule = self.intel_synthesizer.generate_yara_rule(f"Sample_{self.session.sample.filename}")
+            stix_bundle = self.intel_synthesizer.export_stix21_bundle()
+            logger.info(f"Synthesized {len(stix_bundle.get('objects', []))} STIX 2.1 indicators and dynamic YARA signature.")
 
-            # SandboxController.teardown() is documented to never raise
-            # (ARCHITECTURE.md section 14.4) -- guarded anyway, defense in
-            # depth, consistent with every other cleanup step above.
-            try:
-                await self._controller.teardown()
-            except Exception:
-                logger.exception("session=%s controller teardown raised unexpectedly", session_id)
+            self.session.ended_at = now_utc()
+            self.session.metrics = SessionMetrics(
+                raw_events=self.raw_count,
+                semantic_events=self.sem_count,
+                decisions_total=self.dec_count,
+                decisions_executed=self.mut_count,
+                mutations_applied=self.mut_count,
+                semantic_events_post_mutation=self.post_mut_count
+            )
+            self.session_repo.update_status(
+                self.session.session_id,
+                self.session.status,
+                self.session.ended_at,
+                self.session.error
+            )
+            self.session_repo.update_metrics(self.session.session_id, self.session.metrics)
+            logger.info(f"Session {self.session.session_id} runner terminated successfully.")
 
-            await writer.close()
+    async def _trigger_forced_state_mutation(self) -> None:
+        """Applies tactical anti-dormancy state mutations to force execution progress."""
+        self.forced_mutations_triggered += 1
+        self.last_event_time = time.time()  # Reset idle timer
 
-        ended_at = datetime.now(timezone.utc)
+        # 1. Randomize syscalls
+        self.syscall_virtualizer.randomize_syscall_indices()
 
-        return AnalysisSession(
-            session_id=session_id,
-            experiment_id=experiment_id,
-            arm=arm,
-            sample=sample,
-            config=session_config,
-            status=status,
-            started_at=started_at,
-            ended_at=ended_at,
-            metrics=SessionMetrics(raw_events=writer.count),
-            error=error,
+        # 2. Dynamic mitigation toggle
+        mit_state = MitigationState.ENABLED if (self.forced_mutations_triggered % 2 == 1) else MitigationState.DISABLED
+        self.kernel_poly.toggle_mitigation_atomically("CVE-2017-5715", mit_state, tx_id=f"tx_dormancy_{self.forced_mutations_triggered}")
+
+        # 3. Simulate human activity (Bézier mouse movements)
+        self.user_simulator.generate_random_user_session(duration_seconds=2)
+
+    async def _handle_raw_event(self, event: RawEvent) -> None:
+        self.raw_count += 1
+        self.last_event_time = time.time()
+        self.event_repo.save_raw_event(event)
+        self.accessed_categories.append(event.category.value)
+
+        # Causal provenance check
+        self.provenance_engine.evaluate_raw_event_causality(event)
+
+        # Deception backfire check
+        self.backfire_detector.inspect_raw_event(event)
+
+        # Ingest into attention encoder buffer
+        pid_val = event.process.pid if event.process else 0
+        target_val = str(event.attributes.get("target_object") or event.attributes.get("target_path") or event.attributes.get("target") or "")
+        self.event_history.append({
+            "type": str(event.category.value if hasattr(event.category, "value") else event.category),
+            "pid": pid_val,
+            "target": target_val,
+            "severity": 0.5,
+            "timestamp_ns": int(time.time() * 1e9),
+        })
+
+        await self.fusion.ingest(event)
+
+    async def _handle_semantic_event(self, event: SemanticEvent) -> None:
+        self.sem_count += 1
+        self.last_event_time = time.time()
+        self.intents_history.append(event.intent)
+
+        # Provenance attribution
+        attributed_mut = self.provenance_engine.attribute_semantic_event(event, self.active_mutation_id)
+        if attributed_mut:
+            event.caused_by_mutation = attributed_mut
+            self.post_mut_count += 1
+
+        self.event_repo.save_semantic_event(event)
+        self.backfire_detector.inspect_semantic_event(event)
+
+        # Check tripwires
+        target = str(event.features.get("target_path") or event.features.get("target_object") or "")
+        if target:
+            file_alert = self.decoy_engine.record_file_access(target)
+            if file_alert:
+                self.intel_synthesizer.record_artifact("CANARY_FILE_TOUCHED", target, confidence=0.95)
+
+        # Check deception chains
+        chain_action = self.chain_planner.get_next_chain_action(event.intent)
+        if chain_action:
+            chain_name, next_act = chain_action
+            logger.info(f"Deception chain '{chain_name}' activated next step: {next_act}")
+
+        # Autonomous DRL evaluation
+        state_vec = self.attention_encoder.compute_attention_embedding(self.event_history[-10:])
+        policy_action = self.drl_policy.select_action(
+            state_embedding=state_vec,
+            execution_phase="EXECUTION",
+            is_evasion_detected=False,
+            is_sample_dormant=False,
         )
+
+        if policy_action.action_type == ActionType.RANDOMIZE_SYSCALLS:
+            self.syscall_virtualizer.randomize_syscall_indices()
+        elif policy_action.action_type == ActionType.SHUFFLE_KERNEL_MEMORY:
+            self.kernel_poly.shuffle_kernel_memory_layout(entropy_seed=int(time.time()))
+        elif policy_action.action_type == ActionType.ENABLE_C2_SINKHOLE:
+            sink_ip = self.c2_sinkhole.resolve_dns_query("malicious-c2-callback.net")
+            self.intel_synthesizer.record_artifact("C2_SINKHOLE_ACTIVE", sink_ip, confidence=0.9)
+
+        await self.policy.evaluate(event)
+
+    async def _handle_decision(self, decision: PolicyDecision) -> None:
+        self.dec_count += 1
+        self.decision_repo.save(decision)
+
+        # Adaptive budget check
+        can_exec, reason = self.adaptive_budget.can_execute(decision.action)
+        if not can_exec:
+            logger.warning(f"Decision {decision.action} suppressed by AdaptiveBudget: {reason}")
+            return
+
+        self.adaptive_budget.record_execution(decision.action)
+        await self.deception.execute(decision)
+
+    async def _handle_mutation(self, mutation: MutationResult) -> None:
+        self.mut_count += 1
+        self.mutation_repo.save(mutation)
+        self.active_mutation_id = mutation.mutation_id
+        self.fusion.set_active_mutation(mutation.mutation_id)
+
+        # Register in provenance, environment state, and backfire detector
+        self.provenance_engine.register_mutation(mutation)
+        self.env_state.update_from_mutation(mutation.primitive, {})
+        self.backfire_detector.set_active_mutation(mutation.mutation_id, mutation.applied_at)
+
+        async def clear_causal_window_later():
+            await asyncio.sleep(30.0)
+            if self.active_mutation_id == mutation.mutation_id:
+                self.active_mutation_id = None
+                self.fusion.set_active_mutation(None)
+                self.backfire_detector.set_active_mutation(None)
+        asyncio.create_task(clear_causal_window_later())

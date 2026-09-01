@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}ADAM — Session Details {{ session.session_id if session else 'Demo' }}{% endblock %}
+{% block title %}ADAM — Session Details {{ session.session_id if session else '' }}{% endblock %}
 
 {% block nav_dashboard_class %}active{% endblock %}
 
@@ -8,52 +8,53 @@
 <span class="breadcrumb-separator">></span>
 <a href="/dashboard">Sessions</a>
 <span class="breadcrumb-separator">></span>
-<span class="breadcrumb-active"><code>{{ session.session_id if session else 'sess_demo_1' }}</code></span>
+<span class="breadcrumb-active"><code>{{ session.session_id }}</code></span>
 {% endblock %}
 
 {% block header_actions %}
-  <div style="display: flex; gap: 8px;">
-
-
-    <a href="/dashboard/session/{{ session.session_id if session else 'sess_demo_1' }}/report" class="btn btn-success btn-sm" id="btn-view-report">
+  <div style="display: flex; gap: 8px; align-items: center;">
+    <button class="btn btn-secondary btn-sm" onclick="location.reload()">
+      <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M4 4v5h.582m15.356 2A8.001 8.001 0 1121.21 8H17"></path></svg>
+      Refresh Feed
+    </button>
+    <a href="/dashboard/session/{{ session.session_id }}/report" class="btn btn-success btn-sm" id="btn-view-report">
       <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
       View Report
     </a>
-    
-    <button class="btn btn-danger btn-sm" id="btn-force-teardown" data-session-id="{{ session.session_id if session else 'sess_demo_1' }}">
-      <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
-      Teardown VM
-    </button>
   </div>
 {% endblock %}
 
 {% block content %}
 <div class="session-workspace">
 
-  <!-- LEFT PANEL: METADATA & VM CONTROL -->
+  <!-- LEFT PANEL: METADATA & TELEMETRY SUMMARY -->
   <aside class="sidebar-panel">
     
     <!-- VM STATE CARD -->
     <div class="card">
       <div class="card-header">
-        <h3 class="card-title" style="font-size: 1rem;">VM Status</h3>
+        <h3 class="card-title" style="font-size: 1rem;">Session Context</h3>
       </div>
-      <div style="display: flex; flex-direction: column; gap: 16px;">
+      <div style="display: flex; flex-direction: column; gap: 14px;">
         <div style="display: flex; justify-content: space-between; align-items: center;">
-          <span style="font-size: 0.85rem; color: var(--text-secondary);">Current FSM State</span>
-          <span class="badge badge-{{ (session.status.lower() if session else 'completed') }}">{{ session.status if session else 'COMPLETED' }}</span>
+          <span style="font-size: 0.85rem; color: var(--text-secondary);">Status</span>
+          <span class="badge badge-{{ session.status.value.lower() }}">{{ session.status.value }}</span>
         </div>
         <div style="display: flex; justify-content: space-between; align-items: center;">
-          <span style="font-size: 0.85rem; color: var(--text-secondary);">VM Profile</span>
-          <code style="font-size: 0.8rem;">{{ session.config.vm_profile if (session and session.config) else 'win10-x64-office' }}</code>
+          <span style="font-size: 0.85rem; color: var(--text-secondary);">Experiment</span>
+          <span style="font-size: 0.85rem; font-weight: 600;">{{ session.experiment_id }}</span>
         </div>
         <div style="display: flex; justify-content: space-between; align-items: center;">
           <span style="font-size: 0.85rem; color: var(--text-secondary);">Analysis Arm</span>
-          {% if session and session.arm == 'CONTROL' %}
+          {% if session.arm.value == 'CONTROL' %}
             <span class="badge badge-control">Control</span>
           {% else %}
             <span class="badge badge-treatment">Treatment</span>
           {% endif %}
+        </div>
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <span style="font-size: 0.85rem; color: var(--text-secondary);">VM Profile</span>
+          <code style="font-size: 0.8rem;">{{ session.config.vm_profile }}</code>
         </div>
       </div>
     </div>
@@ -66,26 +67,47 @@
       <div style="display: flex; flex-direction: column; gap: 12px; font-size: 0.85rem;">
         <div>
           <span style="color: var(--text-muted); display: block; font-size: 0.75rem; text-transform: uppercase;">Filename</span>
-          <span style="font-weight: 600; word-break: break-all;">{{ session.sample.filename if (session and session.sample) else 'lockbit_decoy.exe' }}</span>
+          <span style="font-weight: 600; word-break: break-all;">{{ session.sample.filename }}</span>
         </div>
         <div>
           <span style="color: var(--text-muted); display: block; font-size: 0.75rem; text-transform: uppercase;">SHA-256</span>
-          <code style="word-break: break-all; font-size: 0.75rem;">{{ session.sample.sha256 if (session and session.sample) else 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855' }}</code>
+          <code style="word-break: break-all; font-size: 0.75rem;">{{ session.sample.sha256 }}</code>
         </div>
         <div>
-          <span style="color: var(--text-muted); display: block; font-size: 0.75rem; text-transform: uppercase;">File Type</span>
-          <span>{{ session.sample.file_type if (session and session.sample) else 'PE32 executable (GUI) Intel 80386, for MS Windows' }}</span>
-        </div>
-        <div>
-          <span style="color: var(--text-muted); display: block; font-size: 0.75rem; text-transform: uppercase;">Size</span>
-          <span>{{ session.sample.size_bytes if (session and session.sample) else 284672 }} bytes</span>
+          <span style="color: var(--text-muted); display: block; font-size: 0.75rem; text-transform: uppercase;">File Size</span>
+          <span>{{ session.sample.size_bytes }} bytes</span>
         </div>
       </div>
     </div>
 
-    <!-- CUSTOM WIDGETS SLOT: For user metrics, graphs, etc -->
-    {% block custom_session_widgets %}
-    {% endblock %}
+    <!-- TELEMETRY METRICS SUMMARY -->
+    <div class="card">
+      <div class="card-header">
+        <h3 class="card-title" style="font-size: 1rem;">Telemetry Metrics</h3>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 10px; font-size: 0.85rem;">
+        <div style="display: flex; justify-content: space-between;">
+          <span style="color: var(--text-secondary);">Raw Events Logged</span>
+          <strong>{{ session.metrics.raw_events }}</strong>
+        </div>
+        <div style="display: flex; justify-content: space-between;">
+          <span style="color: var(--text-secondary);">Semantic Intents</span>
+          <strong>{{ session.metrics.semantic_events }}</strong>
+        </div>
+        <div style="display: flex; justify-content: space-between;">
+          <span style="color: var(--text-secondary);">Decisions Evaluated</span>
+          <strong>{{ session.metrics.decisions_total }}</strong>
+        </div>
+        <div style="display: flex; justify-content: space-between;">
+          <span style="color: var(--text-secondary);">Mutations Applied</span>
+          <strong style="color: {% if session.metrics.mutations_applied > 0 %}var(--accent-primary){% else %}var(--text-muted){% endif %};">{{ session.metrics.mutations_applied }}</strong>
+        </div>
+        <div style="display: flex; justify-content: space-between;">
+          <span style="color: var(--text-secondary);">Post-Mutation Yield</span>
+          <strong style="color: {% if session.metrics.semantic_events_post_mutation > 0 %}var(--accent-primary){% else %}var(--text-muted){% endif %};">{{ session.metrics.semantic_events_post_mutation }}</strong>
+        </div>
+      </div>
+    </div>
 
   </aside>
 
@@ -95,58 +117,132 @@
       
       <!-- Workspace tabs header -->
       <div class="tabs-container">
-        <button class="tab-btn active" data-tab="feed">Live Event Feed</button>
-        <button class="tab-btn" data-tab="decisions">Decision Ledger</button>
-        <button class="tab-btn" data-tab="mutations">Applied Mutations</button>
+        <button class="tab-btn active" data-tab="feed">Live Event Feed ({{ feed_items|length }})</button>
+        <button class="tab-btn" data-tab="intents">Inferred Intents ({{ events|length }})</button>
+        <button class="tab-btn" data-tab="decisions">Decision Ledger ({{ decisions|length }})</button>
+        <button class="tab-btn" data-tab="mutations">Applied Mutations ({{ mutations|length }})</button>
       </div>
 
       <!-- TAB CONTENT: LIVE TELEMETRY LOGS FEED -->
       <div class="tab-content active" id="feed-tab">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-          <!-- Filter checkboxes / toggles -->
           <div style="display: flex; gap: 8px;">
-            <button class="btn btn-secondary btn-sm filter-btn active" data-filter="raw" style="border-left: 3px solid var(--text-muted);">Raw</button>
-            <button class="btn btn-secondary btn-sm filter-btn active" data-filter="semantic" style="border-left: 3px solid var(--accent-primary);">Semantic</button>
-            <button class="btn btn-secondary btn-sm filter-btn active" data-filter="decision" style="border-left: 3px solid var(--color-warning);">Decisions</button>
-            <button class="btn btn-secondary btn-sm filter-btn active" data-filter="mutation" style="border-left: 3px solid var(--status-treatment);">Mutations</button>
+            <button class="filter-btn active" data-filter="raw">Raw</button>
+            <button class="filter-btn active" data-filter="semantic">Semantic</button>
+            <button class="filter-btn active" data-filter="decision">Decisions</button>
+            <button class="filter-btn active" data-filter="mutation">Mutations</button>
           </div>
           <button class="btn btn-danger btn-sm" id="btn-clear-feed">Clear View</button>
         </div>
 
         <div class="feed-box" id="telemetry-feed-container">
-          <!-- Raw & Semantic Trace Records -->
-          <div class="feed-row system">
-            <div class="feed-row-meta">SYS | Ingest Initialization</div>
-            <div class="feed-row-content">Establishing channel to VM. Telemetry hooks configured.</div>
-          </div>
-          
-          <div class="feed-row raw" data-corr-id="corr_01J8X4K2M9">
-            <div class="feed-row-meta">SYSMON | Registry Query | Corr: <a href="#" class="trace-link" data-correlation="corr_01J8X4K2M9">corr_01J8X4K2M9</a></div>
-            <div class="feed-row-content">REGISTRY: QueryValue for HKLM\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Domain. Target object: HKLM\... Details: QueryValue. Result: NAME_NOT_FOUND.</div>
-          </div>
-
-          <div class="feed-row semantic" data-corr-id="corr_01J8X4K2M9">
-            <div class="feed-row-meta">FUSION | Intent Detected | Corr: <a href="#" class="trace-link" data-correlation="corr_01J8X4K2M9">corr_01J8X4K2M9</a></div>
-            <div class="feed-row-content">INTENT: RECON_DOMAIN_CONTROLLER (Confidence: 0.87, Severity: MEDIUM)
-Evidence: [raw_01J8X4K2M9P3QR7T, raw_01J8X4K2N4]
-MITRE Tactic: TA0007 (Discovery), Technique: T1018 (Remote System Discovery)</div>
-          </div>
-
-          <div class="feed-row decision" data-corr-id="corr_01J8X4K2M9">
-            <div class="feed-row-meta">POLICY | Decision Made | Corr: <a href="#" class="trace-link" data-correlation="corr_01J8X4K2M9">corr_01J8X4K2M9</a></div>
-            <div class="feed-row-content">DECISION: rule RULE-014 triggered verdict EXECUTE with Action SPAWN_FAKE_DC_ARTIFACTS (Priority: 80).
-Rationale: Domain recon at confidence 0.87 (gate 0.75); budget 0/1 used; no cooldown active.</div>
-          </div>
-
-          <div class="feed-row mutation" data-corr-id="corr_01J8X4K2M9">
-            <div class="feed-row-meta">DECEPTION | Mutation Applied | Corr: <a href="#" class="trace-link" data-correlation="corr_01J8X4K2M9">corr_01J8X4K2M9</a></div>
-            <div class="feed-row-content">MUTATION: FakeDomainControllerDeception@1.0 status APPLIED in 197ms.
+          {% for item in feed_items %}
+            {% if item.type == 'raw' %}
+              {% set r = item.data %}
+              <div class="feed-row raw">
+                <div class="feed-row-meta">
+                  <span>{{ r.source.value }} | {{ r.category.value }} | PID: {{ r.process.pid if r.process else '-' }}</span>
+                  <span>{{ r.occurred_at }}</span>
+                </div>
+                <div class="feed-row-content">
+                  {% if r.process and r.process.image %}<strong>[{{ r.process.image }}]</strong> {% endif %}
+                  {% if r.attributes and r.attributes.operation %}Op: {{ r.attributes.operation }} | {% endif %}
+                  {% if r.attributes and r.attributes.target_object %}Target: {{ r.attributes.target_object }} | {% endif %}
+                  {% if r.attributes and r.attributes.target_path %}Path: {{ r.attributes.target_path }} | {% endif %}
+                  {% if r.attributes and r.attributes.dest_ip %}Dest: {{ r.attributes.dest_ip }}:{{ r.attributes.dest_port }} | {% endif %}
+                  {% if r.attributes and r.attributes.details %}{{ r.attributes.details }}{% else %}Telemetry Event: {{ r.source.value }} / {{ r.category.value }} (PID: {{ r.process.pid if r.process else '-' }}){% endif %}
+                </div>
+              </div>
+            {% elif item.type == 'semantic' %}
+              {% set e = item.data %}
+              <div class="feed-row semantic" data-corr-id="{{ e.correlation_id }}">
+                <div class="feed-row-meta">
+                  <span>FUSION | Intent Detected | Corr: <a href="#" class="trace-link" data-correlation="{{ e.correlation_id }}">{{ e.correlation_id }}</a></span>
+                  <span>{{ e.window_start }}</span>
+                </div>
+                <div class="feed-row-content">
+INTENT: <strong>{{ e.intent }}</strong> (Confidence: {{ e.confidence | round(2) }}, Severity: <span class="badge badge-sev-{{ e.severity.lower() }}" style="padding: 2px 8px; font-size: 0.7rem;">{{ e.severity }}</span>)
+{% if e.attck %}MITRE ATT&CK: {{ e.attck.tactic }} / {{ e.attck.technique }}{% endif %}
+{% if e.caused_by_mutation %}<span style="color: var(--accent-primary); font-weight: 700;">★ Causally attributed to mutation: {{ e.caused_by_mutation }}</span>{% endif %}
+Evidence: {{ e.evidence }}
+Detector: {{ e.detector }}</div>
+              </div>
+            {% elif item.type == 'decision' %}
+              {% set d = item.data %}
+              <div class="feed-row decision" data-corr-id="{{ d.correlation_id }}">
+                <div class="feed-row-meta">
+                  <span>POLICY | Decision Made | Corr: <a href="#" class="trace-link" data-correlation="{{ d.correlation_id }}">{{ d.correlation_id }}</a></span>
+                  <span>{{ d.decided_at }}</span>
+                </div>
+                <div class="feed-row-content">
+DECISION: Rule <strong>{{ d.rule_id }}</strong> (v{{ d.rule_version }}) triggered verdict <span class="badge badge-{% if d.verdict.value == 'EXECUTE' %}ready{% else %}armed{% endif %}">{{ d.verdict.value }}</span> with Action <strong>{{ d.action }}</strong> (Priority: {{ d.priority }})
+Rationale: {{ d.rationale }}</div>
+              </div>
+            {% elif item.type == 'mutation' %}
+              {% set m = item.data %}
+              <div class="feed-row mutation" data-corr-id="{{ m.correlation_id }}">
+                <div class="feed-row-meta">
+                  <span>DECEPTION | Mutation Applied | Corr: <a href="#" class="trace-link" data-correlation="{{ m.correlation_id }}">{{ m.correlation_id }}</a></span>
+                  <span>{{ m.applied_at }}</span>
+                </div>
+                <div class="feed-row-content">
+MUTATION: <strong>{{ m.primitive }}</strong> status <span class="badge badge-applied">{{ m.status.value }}</span> (Latency: {{ m.latency_ms | round(1) }}ms)
 Changes:
-- HKLM\SYSTEM\...\Domain SET "CORP.LOCAL"
-- File "C:\Windows\SYSVOL\sysvol\CORP.LOCAL\" CREATE
-- DNS DC01.CORP.LOCAL RESPOND "10.0.0.10"
-Plausibility Score: 0.72 ("Registry key mtime is post-boot")</div>
-          </div>
+{% for change in m.changes %}
+- [{{ change.kind }}] {{ change.operation }} {{ change.target }} {% if change.value %}= "{{ change.value }}"{% endif %}
+{% endfor %}
+Plausibility Score: <strong>{{ m.plausibility_score }}</strong> ("{{ m.plausibility_notes }}")</div>
+              </div>
+            {% endif %}
+          {% else %}
+            <div class="feed-row system">
+              <div class="feed-row-content" style="text-align: center; color: var(--text-muted);">No telemetry events recorded for this session.</div>
+            </div>
+          {% endfor %}
+        </div>
+      </div>
+
+      <!-- TAB CONTENT: INFERRED INTENTS TABLE -->
+      <div class="tab-content" id="intents-tab">
+        <div class="table-responsive">
+          <table class="table">
+            <thead>
+              <tr>
+                <th>Intent</th>
+                <th>Confidence</th>
+                <th>Severity</th>
+                <th>MITRE ATT&CK</th>
+                <th>Detector</th>
+                <th>Causal Mutation</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for e in events %}
+              <tr>
+                <td><code>{{ e.intent }}</code></td>
+                <td><strong>{{ e.confidence | round(2) }}</strong></td>
+                <td>
+                  {% if e.severity == 'CRITICAL' %}
+                    <span class="badge badge-sev-critical" style="background-color: rgba(255, 0, 60, 0.25) !important; color: #ff003c !important; border: 1px solid #ff003c !important; box-shadow: 0 0 10px rgba(255, 0, 60, 0.5) !important;">CRITICAL</span>
+                  {% elif e.severity == 'HIGH' %}
+                    <span class="badge badge-sev-high" style="background-color: rgba(255, 140, 0, 0.22) !important; color: #ff8c00 !important; border: 1px solid #ff8c00 !important; box-shadow: 0 0 10px rgba(255, 140, 0, 0.45) !important;">HIGH</span>
+                  {% elif e.severity == 'MEDIUM' %}
+                    <span class="badge badge-sev-medium" style="background-color: rgba(255, 234, 0, 0.18) !important; color: #ffea00 !important; border: 1px solid #ffea00 !important; box-shadow: 0 0 10px rgba(255, 234, 0, 0.4) !important;">MEDIUM</span>
+                  {% else %}
+                    <span class="badge badge-sev-low" style="background-color: rgba(57, 255, 20, 0.2) !important; color: #39ff14 !important; border: 1.5px solid #39ff14 !important; box-shadow: 0 0 10px rgba(57, 255, 20, 0.4) !important;">LOW</span>
+                  {% endif %}
+                </td>
+                <td>{% if e.attck %}<code>{{ e.attck.tactic }}</code> / <code>{{ e.attck.technique }}</code>{% else %}-{% endif %}</td>
+                <td><small>{{ e.detector }}</small></td>
+                <td>{% if e.caused_by_mutation %}<span class="badge badge-treatment">{{ e.caused_by_mutation }}</span>{% else %}-{% endif %}</td>
+              </tr>
+              {% else %}
+              <tr>
+                <td colspan="6" style="text-align: center; color: var(--text-muted);">No semantic intent detections recorded for this session.</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
         </div>
       </div>
 
@@ -166,41 +262,23 @@ Plausibility Score: 0.72 ("Registry key mtime is post-boot")</div>
               </tr>
             </thead>
             <tbody>
-              {% if decisions %}
-                {% for d in decisions %}
-                <tr>
-                  <td><code>{{ d.decision_id }}</code></td>
-                  <td><code>{{ d.rule_id }}</code> <small>v{{ d.rule_version }}</small></td>
-                  <td><code>{{ d.action }}</code></td>
-                  <td>
-                    <span class="badge badge-{% if d.verdict == 'EXECUTE' %}ready{% else %}armed{% endif %}">{{ d.verdict }}</span>
-                  </td>
-                  <td>{{ d.priority }}</td>
-                  <td>{{ d.rationale }}</td>
-                  <td><code>{{ d.triggered_by }}</code></td>
-                </tr>
-                {% endfor %}
+              {% for d in decisions %}
+              <tr>
+                <td><code>{{ d.decision_id }}</code></td>
+                <td><code>{{ d.rule_id }}</code> <small>v{{ d.rule_version }}</small></td>
+                <td><strong>{{ d.action }}</strong></td>
+                <td>
+                  <span class="badge badge-{% if d.verdict.value == 'EXECUTE' %}ready{% else %}armed{% endif %}">{{ d.verdict.value }}</span>
+                </td>
+                <td>{{ d.priority }}</td>
+                <td>{{ d.rationale }}</td>
+                <td><code>{{ d.triggered_by }}</code></td>
+              </tr>
               {% else %}
-                <!-- Fallback Mock Decisions for Demo -->
-                <tr>
-                  <td><code>dec_01J8X4K3B7</code></td>
-                  <td><code>RULE-014</code> <small>v1.0.3</small></td>
-                  <td><code>SPAWN_FAKE_DC_ARTIFACTS</code></td>
-                  <td><span class="badge badge-ready">EXECUTE</span></td>
-                  <td>80</td>
-                  <td>Domain recon at confidence 0.87 (gate 0.75); budget 0/1 used; no cooldown active.</td>
-                  <td><code>sem_01J8X4K3A1</code></td>
-                </tr>
-                <tr>
-                  <td><code>dec_01J8X4K3B9</code></td>
-                  <td><code>RULE-014</code> <small>v1.0.3</small></td>
-                  <td><code>SPAWN_FAKE_DC_ARTIFACTS</code></td>
-                  <td><span class="badge badge-armed">SUPPRESSED_BUDGET</span></td>
-                  <td>80</td>
-                  <td>Domain recon limit breached; rule SPAWN_FAKE_DC_ARTIFACTS hit max count of 1.</td>
-                  <td><code>sem_01J8X4K4C1</code></td>
-                </tr>
-              {% endif %}
+              <tr>
+                <td colspan="7" style="text-align: center; color: var(--text-muted);">No policy decisions evaluated for this session.</td>
+              </tr>
+              {% endfor %}
             </tbody>
           </table>
         </div>
@@ -222,48 +300,30 @@ Plausibility Score: 0.72 ("Registry key mtime is post-boot")</div>
               </tr>
             </thead>
             <tbody>
-              {% if mutations %}
-                {% for m in mutations %}
-                <tr>
-                  <td><code>{{ m.mutation_id }}</code></td>
-                  <td>{{ m.primitive }}</td>
-                  <td><span class="badge badge-applied">{{ m.status }}</span></td>
-                  <td>
-                    <ul style="padding-left: 16px; font-size: 0.8rem;">
-                      {% for change in m.changes %}
-                      <li><strong>{{ change.kind }}</strong>: {{ change.operation }} {{ change.target }} ({{ change.value }})</li>
-                      {% endfor %}
-                    </ul>
-                  </td>
-                  <td>{{ m.latency_ms }}ms</td>
-                  <td>
-                    <strong>{{ m.plausibility_score }}</strong>
-                    <br><small>{{ m.plausibility_notes }}</small>
-                  </td>
-                  <td>{{ m.causal_window_ms }}ms</td>
-                </tr>
-                {% endfor %}
+              {% for m in mutations %}
+              <tr>
+                <td><code>{{ m.mutation_id }}</code></td>
+                <td><strong>{{ m.primitive }}</strong></td>
+                <td><span class="badge badge-applied">{{ m.status.value }}</span></td>
+                <td>
+                  <ul style="padding-left: 16px; font-size: 0.8rem; list-style: none;">
+                    {% for change in m.changes %}
+                    <li>🔧 <strong>[{{ change.kind }}]</strong>: {{ change.operation }} <code>{{ change.target }}</code> {% if change.value %}= <em>"{{ change.value }}"</em>{% endif %}</li>
+                    {% endfor %}
+                  </ul>
+                </td>
+                <td>{{ m.latency_ms | round(1) }}ms</td>
+                <td>
+                  <strong>{{ m.plausibility_score }}</strong>
+                  <br><small>{{ m.plausibility_notes }}</small>
+                </td>
+                <td>{{ m.causal_window_ms }}ms</td>
+              </tr>
               {% else %}
-                <!-- Fallback Mock Mutations for Demo -->
-                <tr>
-                  <td><code>mut_01J8X4K3C2</code></td>
-                  <td><code>FakeDomainControllerDeception@1.0</code></td>
-                  <td><span class="badge badge-applied">APPLIED</span></td>
-                  <td>
-                    <ul style="padding-left: 16px; font-size: 0.8rem; list-style: none;">
-                      <li>🔧 <strong>REGISTRY</strong>: SET <code>HKLM\SYSTEM\...\Domain</code> to <code>CORP.LOCAL</code></li>
-                      <li>📁 <strong>FILE</strong>: CREATE <code>C:\Windows\SYSVOL\sysvol\CORP.LOCAL\</code></li>
-                      <li>🌐 <strong>NETWORK</strong>: RESPOND DNS for <code>DC01.CORP.LOCAL</code> with <code>10.0.0.10</code></li>
-                    </ul>
-                  </td>
-                  <td>197ms</td>
-                  <td>
-                    <strong>0.72</strong>
-                    <br><small>Registry key mtime is post-boot; a timestamp-aware sample could detect this.</small>
-                  </td>
-                  <td>30000ms</td>
-                </tr>
-              {% endif %}
+              <tr>
+                <td colspan="7" style="text-align: center; color: var(--text-muted);">No mutations applied to the guest environment during this session.</td>
+              </tr>
+              {% endfor %}
             </tbody>
           </table>
         </div>
@@ -271,6 +331,78 @@ Plausibility Score: 0.72 ("Registry key mtime is post-boot")</div>
 
     </div>
   </main>
-
 </div>
 {% endblock %}
+
+{% block extra_scripts %}
+<script>
+(function() {
+  function initFeedFiltering() {
+    const filterBtns = document.querySelectorAll('.filter-btn');
+    const feedBox = document.getElementById('telemetry-feed-container');
+    const clearBtn = document.getElementById('btn-clear-feed');
+
+    if (!feedBox || filterBtns.length === 0) return;
+
+    // Filter types
+    const validTypes = ['raw', 'semantic', 'decision', 'mutation'];
+
+    function applyFilterState() {
+      // Find all currently active button categories
+      const activeTypes = Array.from(document.querySelectorAll('.filter-btn.active'))
+        .map(b => b.dataset.filter)
+        .filter(t => validTypes.includes(t));
+
+      const allRows = feedBox.querySelectorAll('.feed-row');
+      allRows.forEach(row => {
+        // If no filter buttons are selected, display all logs
+        if (activeTypes.length === 0) {
+          row.style.setProperty('display', 'flex', 'important');
+          return;
+        }
+
+        // Check if row has any of the selected active classes
+        let isMatch = false;
+        for (const type of activeTypes) {
+          if (row.classList.contains(type)) {
+            isMatch = true;
+            break;
+          }
+        }
+        row.style.setProperty('display', isMatch ? 'flex' : 'none', 'important');
+      });
+    }
+
+    // Toggle on/off per button (Multi-selection)
+    filterBtns.forEach(btn => {
+      btn.onclick = function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        btn.classList.toggle('active');
+        applyFilterState();
+      };
+    });
+
+    // "Clear View" Button: deselects all active filters and resets feed
+    if (clearBtn) {
+      clearBtn.onclick = function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        filterBtns.forEach(b => b.classList.remove('active'));
+        applyFilterState();
+      };
+    }
+
+    // Initial render
+    applyFilterState();
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initFeedFiltering);
+  } else {
+    initFeedFiltering();
+  }
+})();
+</script>
+{% endblock %}
+

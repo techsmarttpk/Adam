@@ -1,0 +1,501 @@
+version: "1.0.0"
+description: "ADAM Mutation Test Ground-Truth Validation Manifest"
+
+commands:
+  - command_id: "crit_vm_check"
+    name: "VM Artifact Check"
+    severity: "CRITICAL"
+    expected_intent: "EVADE_VM_ARTIFACT_CHECK"
+    expected_policy_action: "SPOOF_HARDWARE_IDENTITY"
+    expected_action_category: "MUTATE"
+    telemetry_requirements:
+      sources: ["SYSMON"]
+      event_patterns: ["HKLM\\HARDWARE\\DESCRIPTION\\System"]
+      minimum_events: 1
+    detector_requirements:
+      detector: "detect_vm_artifact_checks"
+      expected_confidence_minimum: 0.85
+    policy_requirements:
+      expected_rule: "RULE-EVADE-001"
+      expected_verdict: "EXECUTE"
+    mutation_requirements:
+      primitive: "SPOOF_HARDWARE_IDENTITY"
+      expected_status: "APPLIED"
+    environment_verification_requirements:
+      checks:
+        - type: "REGISTRY"
+          target: "HKLM\\HARDWARE\\DESCRIPTION\\System\\SystemBiosVersion"
+          expected_contains: "DELL"
+    causal_requirements:
+      require_post_mutation_event: false
+      require_caused_by_mutation: false
+
+  - command_id: "crit_process_hollowing"
+    name: "Process Hollowing Probe"
+    severity: "CRITICAL"
+    expected_intent: "INJECT_PROCESS_HOLLOWING"
+    expected_policy_action: "ACTIVATE_EPT_SHADOW_HOOK"
+    expected_action_category: "MEASUREMENT"
+    telemetry_requirements:
+      sources: ["SYSMON"]
+      event_patterns: ["hollowing"]
+      minimum_events: 1
+    detector_requirements:
+      detector: "detect_process_hollowing"
+      expected_confidence_minimum: 0.90
+    policy_requirements:
+      expected_rule: "RULE-INJECT-002"
+      expected_verdict: "EXECUTE"
+    mutation_requirements:
+      primitive: "ACTIVATE_EPT_SHADOW_HOOK"
+      expected_status: "APPLIED"
+    environment_verification_requirements:
+      checks:
+        - type: "MEASUREMENT"
+          target: "EPT_HYPERVISOR_MONITOR"
+          expected_contains: "ACTIVATE_EPT_SHADOW_HOOK"
+    causal_requirements:
+      require_post_mutation_event: false
+      require_caused_by_mutation: false
+
+  - command_id: "crit_cloud_creds"
+    name: "Cloud Credential Search"
+    severity: "CRITICAL"
+    expected_intent: "CRED_CLOUD_CREDENTIAL_SEARCH"
+    expected_policy_action: "PLANT_DECOY_CLOUD_CREDENTIALS"
+    expected_action_category: "MUTATE"
+    telemetry_requirements:
+      sources: ["SYSMON"]
+      event_patterns: [".aws\\credentials"]
+      minimum_events: 1
+    detector_requirements:
+      detector: "detect_cloud_credential_access"
+      expected_confidence_minimum: 0.85
+    policy_requirements:
+      expected_rule: "RULE-CRED-004"
+      expected_verdict: "EXECUTE"
+    mutation_requirements:
+      primitive: "PLANT_DECOY_CLOUD_CREDENTIALS"
+      expected_status: "APPLIED"
+    environment_verification_requirements:
+      checks:
+        - type: "FILE"
+          target: "%USERPROFILE%\\.aws\\credentials"
+          expected_contains: "aws_access_key_id"
+    causal_requirements:
+      require_post_mutation_event: false
+      require_caused_by_mutation: false
+
+  - command_id: "crit_c2_dga"
+    name: "C2 DGA Probe"
+    severity: "CRITICAL"
+    expected_intent: "C2_DGA_ACTIVITY"
+    expected_policy_action: "ACTIVATE_C2_SINKHOLE"
+    expected_action_category: "MUTATE"
+    telemetry_requirements:
+      sources: ["WIRESHARK"]
+      event_patterns: [".biz"]
+      minimum_events: 1
+    detector_requirements:
+      detector: "detect_dga_activity"
+      expected_confidence_minimum: 0.85
+    policy_requirements:
+      expected_rule: "RULE-C2-001"
+      expected_verdict: "EXECUTE"
+    mutation_requirements:
+      primitive: "ACTIVATE_C2_SINKHOLE"
+      expected_status: "APPLIED"
+    environment_verification_requirements:
+      checks:
+        - type: "NETWORK"
+          target: "firewall:sinkhole_redirect"
+          expected_contains: "127.0.0.1:8443"
+    causal_requirements:
+      require_post_mutation_event: false
+      require_caused_by_mutation: false
+
+  - command_id: "crit_shadow_copy_delete"
+    name: "Shadow Copy Deletion"
+    severity: "CRITICAL"
+    expected_intent: "IMPACT_SHADOW_COPY_DELETE"
+    expected_policy_action: "CREATE_DECOY_RECOVERY_TARGET"
+    expected_action_category: "MUTATE"
+    telemetry_requirements:
+      sources: ["SYSMON"]
+      event_patterns: ["vssadmin delete shadows"]
+      minimum_events: 1
+    detector_requirements:
+      detector: "detect_shadow_copy_deletion"
+      expected_confidence_minimum: 0.95
+    policy_requirements:
+      expected_rule: "RULE-IMPACT-001"
+      expected_verdict: "EXECUTE"
+    mutation_requirements:
+      primitive: "CREATE_DECOY_RECOVERY_TARGET"
+      expected_status: "APPLIED"
+    environment_verification_requirements:
+      checks:
+        - type: "FILE"
+          target: "C:\\SystemRecovery\\DecoyBackups\\shadow_volume_copy_01.vhd"
+          expected_contains: "SIMULATED_SHADOW_VOLUME"
+    causal_requirements:
+      require_post_mutation_event: false
+      require_caused_by_mutation: false
+
+  - command_id: "crit_rdp_lateral"
+    name: "Lateral RDP Connection"
+    severity: "CRITICAL"
+    expected_intent: "LATERAL_RDP_CONNECTION"
+    expected_policy_action: "SYNTHESIZE_RDP_TARGETS"
+    expected_action_category: "MUTATE"
+    telemetry_requirements:
+      sources: ["SYSMON"]
+      event_patterns: ["mstsc.exe"]
+      minimum_events: 1
+    detector_requirements:
+      detector: "detect_lateral_rdp"
+      expected_confidence_minimum: 0.85
+    policy_requirements:
+      expected_rule: "RULE-LAT-002"
+      expected_verdict: "EXECUTE"
+    mutation_requirements:
+      primitive: "SYNTHESIZE_RDP_TARGETS"
+      expected_status: "APPLIED"
+    environment_verification_requirements:
+      checks:
+        - type: "REGISTRY"
+          target: "HKCU\\Software\\Microsoft\\Terminal Server Client\\Default\\MRU0"
+          expected_contains: "10.0.0.50:3389"
+    causal_requirements:
+      require_post_mutation_event: false
+      require_caused_by_mutation: false
+
+  - command_id: "high_recon_dc"
+    name: "Domain Controller Discovery"
+    severity: "HIGH"
+    expected_intent: "RECON_DOMAIN_CONTROLLER"
+    expected_policy_action: "SPAWN_FAKE_DC_ARTIFACTS"
+    expected_action_category: "MUTATE"
+    telemetry_requirements:
+      sources: ["SYSMON"]
+      event_patterns: ["nltest", "/dclist"]
+      minimum_events: 1
+    detector_requirements:
+      detector: "detect_domain_recon"
+      expected_confidence_minimum: 0.90
+    policy_requirements:
+      expected_rule: "RULE-RECON-001"
+      expected_verdict: "EXECUTE"
+    mutation_requirements:
+      primitive: "SPAWN_FAKE_DC_ARTIFACTS"
+      expected_status: "APPLIED"
+    environment_verification_requirements:
+      checks:
+        - type: "REGISTRY"
+          target: "HKLM\\SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters\\Domain"
+          expected_contains: "CORP.LOCAL"
+        - type: "NETWORK"
+          target: "dns:DC01.CORP.LOCAL"
+          expected_contains: "10.0.0.10"
+    causal_requirements:
+      require_post_mutation_event: true
+      require_caused_by_mutation: true
+
+  - command_id: "high_browser_creds"
+    name: "Browser Credential Search"
+    severity: "HIGH"
+    expected_intent: "CRED_BROWSER_STORE"
+    expected_policy_action: "INJECT_FAKE_BROWSER_CREDS"
+    expected_action_category: "MUTATE"
+    telemetry_requirements:
+      sources: ["SYSMON"]
+      event_patterns: ["Login Data"]
+      minimum_events: 1
+    detector_requirements:
+      detector: "detect_browser_credential_access"
+      expected_confidence_minimum: 0.85
+    policy_requirements:
+      expected_rule: "RULE-CRED-001"
+      expected_verdict: "EXECUTE"
+    mutation_requirements:
+      primitive: "INJECT_FAKE_BROWSER_CREDS"
+      expected_status: "APPLIED"
+    environment_verification_requirements:
+      checks:
+        - type: "FILE"
+          target: "%LOCALAPPDATA%\\Google\\Chrome\\User Data\\Default\\Login Data"
+          expected_contains: "SQLite format"
+    causal_requirements:
+      require_post_mutation_event: false
+      require_caused_by_mutation: false
+
+  - command_id: "high_crypto_wallet"
+    name: "Crypto Wallet Search"
+    severity: "HIGH"
+    expected_intent: "CRED_WALLET_SEARCH"
+    expected_policy_action: "PLANT_DECOY_WALLET"
+    expected_action_category: "MUTATE"
+    telemetry_requirements:
+      sources: ["SYSMON"]
+      event_patterns: ["wallet.dat"]
+      minimum_events: 1
+    detector_requirements:
+      detector: "detect_crypto_wallet_access"
+      expected_confidence_minimum: 0.90
+    policy_requirements:
+      expected_rule: "RULE-CRED-002"
+      expected_verdict: "EXECUTE"
+    mutation_requirements:
+      primitive: "PLANT_DECOY_WALLET"
+      expected_status: "APPLIED"
+    environment_verification_requirements:
+      checks:
+        - type: "FILE"
+          target: "%APPDATA%\\Electrum\\wallets\\default_wallet"
+          expected_contains: "keystore"
+    causal_requirements:
+      require_post_mutation_event: false
+      require_caused_by_mutation: false
+
+  - command_id: "high_ssh_keys"
+    name: "SSH Key Harvest"
+    severity: "HIGH"
+    expected_intent: "COLLECT_SSH_KEYS"
+    expected_policy_action: "PLANT_DECOY_PRIVATE_KEYS"
+    expected_action_category: "MUTATE"
+    telemetry_requirements:
+      sources: ["SYSMON"]
+      event_patterns: [".ssh\\id_rsa"]
+      minimum_events: 1
+    detector_requirements:
+      detector: "detect_ssh_key_collection"
+      expected_confidence_minimum: 0.85
+    policy_requirements:
+      expected_rule: "RULE-COLL-003"
+      expected_verdict: "EXECUTE"
+    mutation_requirements:
+      primitive: "PLANT_DECOY_PRIVATE_KEYS"
+      expected_status: "APPLIED"
+    environment_verification_requirements:
+      checks:
+        - type: "FILE"
+          target: "%USERPROFILE%\\.ssh\\id_rsa"
+          expected_contains: "RSA PRIVATE KEY"
+    causal_requirements:
+      require_post_mutation_event: false
+      require_caused_by_mutation: false
+
+  - command_id: "high_admin_shares"
+    name: "Admin Share Enumeration"
+    severity: "HIGH"
+    expected_intent: "LATERAL_ADMIN_SHARE_ENUM"
+    expected_policy_action: "MOUNT_FAKE_NETWORK_SHARE"
+    expected_action_category: "MUTATE"
+    telemetry_requirements:
+      sources: ["SYSMON"]
+      event_patterns: ["net view", "c$"]
+      minimum_events: 1
+    detector_requirements:
+      detector: "detect_admin_share_enum"
+      expected_confidence_minimum: 0.90
+    policy_requirements:
+      expected_rule: "RULE-LAT-001"
+      expected_verdict: "EXECUTE"
+    mutation_requirements:
+      primitive: "MOUNT_FAKE_NETWORK_SHARE"
+      expected_status: "APPLIED"
+    environment_verification_requirements:
+      checks:
+        - type: "FILE"
+          target: "C:\\Corporate_Shares\\Financials\\Q3_Internal_Audit.xlsx"
+          expected_contains: "AUDIT"
+    causal_requirements:
+      require_post_mutation_event: false
+      require_caused_by_mutation: false
+
+  - command_id: "high_c2_beacon"
+    name: "C2 Polling Beacon"
+    severity: "HIGH"
+    expected_intent: "C2_HTTP_POLLING"
+    expected_policy_action: "FABRICATE_C2_RESPONSE"
+    expected_action_category: "MUTATE"
+    telemetry_requirements:
+      sources: ["WIRESHARK"]
+      event_patterns: ["/api/stage"]
+      minimum_events: 1
+    detector_requirements:
+      detector: "detect_http_c2_polling"
+      expected_confidence_minimum: 0.80
+    policy_requirements:
+      expected_rule: "RULE-C2-002"
+      expected_verdict: "EXECUTE"
+    mutation_requirements:
+      primitive: "FABRICATE_C2_RESPONSE"
+      expected_status: "APPLIED"
+    environment_verification_requirements:
+      checks:
+        - type: "NETWORK"
+          target: "c2_channel:dynamic_http"
+          expected_contains: "PING_ACK"
+    causal_requirements:
+      require_post_mutation_event: false
+      require_caused_by_mutation: false
+
+  - command_id: "med_process_discovery"
+    name: "Process Enumeration"
+    severity: "MEDIUM"
+    expected_intent: "RECON_PROCESS_DISCOVERY"
+    expected_policy_action: "SPAWN_DECOY_PROCESSES"
+    expected_action_category: "MUTATE"
+    telemetry_requirements:
+      sources: ["SYSMON"]
+      event_patterns: ["tasklist.exe"]
+      minimum_events: 1
+    detector_requirements:
+      detector: "detect_process_discovery"
+      expected_confidence_minimum: 0.85
+    policy_requirements:
+      expected_rule: "RULE-RECON-003"
+      expected_verdict: "EXECUTE"
+    mutation_requirements:
+      primitive: "SPAWN_DECOY_PROCESSES"
+      expected_status: "APPLIED"
+    environment_verification_requirements:
+      checks:
+        - type: "PROCESS"
+          target: "svchost.exe,notepad.exe,calc.exe"
+          expected_contains: "Emulated"
+    causal_requirements:
+      require_post_mutation_event: false
+      require_caused_by_mutation: false
+
+  - command_id: "med_user_discovery"
+    name: "User Profile Discovery"
+    severity: "MEDIUM"
+    expected_intent: "RECON_USER_DISCOVERY"
+    expected_policy_action: "SYNTHESIZE_USER_PROFILE"
+    expected_action_category: "MUTATE"
+    telemetry_requirements:
+      sources: ["SYSMON"]
+      event_patterns: ["whoami.exe"]
+      minimum_events: 1
+    detector_requirements:
+      detector: "detect_user_discovery"
+      expected_confidence_minimum: 0.85
+    policy_requirements:
+      expected_rule: "RULE-RECON-004"
+      expected_verdict: "EXECUTE"
+    mutation_requirements:
+      primitive: "SYNTHESIZE_USER_PROFILE"
+      expected_status: "APPLIED"
+    environment_verification_requirements:
+      checks:
+        - type: "FILE"
+          target: "%USERPROFILE%\\Documents\\Q4_Team_Memo.docx"
+          expected_contains: "Confidential"
+    causal_requirements:
+      require_post_mutation_event: false
+      require_caused_by_mutation: false
+
+  - command_id: "med_installed_software"
+    name: "Software Inventory"
+    severity: "MEDIUM"
+    expected_intent: "RECON_INSTALLED_SOFTWARE"
+    expected_policy_action: "SYNTHESIZE_SOFTWARE_INVENTORY"
+    expected_action_category: "MUTATE"
+    telemetry_requirements:
+      sources: ["SYSMON"]
+      event_patterns: ["Uninstall"]
+      minimum_events: 1
+    detector_requirements:
+      detector: "detect_software_discovery"
+      expected_confidence_minimum: 0.85
+    policy_requirements:
+      expected_rule: "RULE-RECON-007"
+      expected_verdict: "EXECUTE"
+    mutation_requirements:
+      primitive: "SYNTHESIZE_SOFTWARE_INVENTORY"
+      expected_status: "APPLIED"
+    environment_verification_requirements:
+      checks:
+        - type: "REGISTRY"
+          target: "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\CorporateSoftware\\DisplayName"
+          expected_contains: "Global Enterprise Suite 2026"
+    causal_requirements:
+      require_post_mutation_event: false
+      require_caused_by_mutation: false
+
+  - command_id: "low_system_info"
+    name: "System Info Baseline"
+    severity: "LOW"
+    expected_intent: "RECON_SYSTEM_INFO"
+    expected_policy_action: "NONE"
+    expected_action_category: "OBSERVE"
+    telemetry_requirements:
+      sources: ["SYSMON"]
+      event_patterns: ["winver.exe"]
+      minimum_events: 1
+    detector_requirements:
+      detector: "detect_system_info_recon"
+      expected_confidence_minimum: 0.80
+    policy_requirements:
+      expected_rule: "RULE-RECON-002"
+      expected_verdict: "OBSERVE"
+    mutation_requirements:
+      primitive: "NONE"
+      expected_status: "NONE"
+    environment_verification_requirements:
+      checks: []
+    causal_requirements:
+      require_post_mutation_event: false
+      require_caused_by_mutation: false
+
+  - command_id: "low_network_config"
+    name: "Network Config Discovery"
+    severity: "LOW"
+    expected_intent: "RECON_NETWORK_CONFIG"
+    expected_policy_action: "NONE"
+    expected_action_category: "OBSERVE"
+    telemetry_requirements:
+      sources: ["SYSMON"]
+      event_patterns: ["ipconfig.exe"]
+      minimum_events: 1
+    detector_requirements:
+      detector: "detect_network_config_recon"
+      expected_confidence_minimum: 0.80
+    policy_requirements:
+      expected_rule: "RULE-RECON-005"
+      expected_verdict: "OBSERVE"
+    mutation_requirements:
+      primitive: "NONE"
+      expected_status: "NONE"
+    environment_verification_requirements:
+      checks: []
+    causal_requirements:
+      require_post_mutation_event: false
+      require_caused_by_mutation: false
+
+  - command_id: "obs_lsass_access"
+    name: "LSASS Credential Access"
+    severity: "CRITICAL"
+    expected_intent: "CRED_LSASS_ACCESS"
+    expected_policy_action: "NONE"
+    expected_action_category: "OBSERVE"
+    telemetry_requirements:
+      sources: ["SYSMON"]
+      event_patterns: ["lsass.exe", "ProcessAccess"]
+      minimum_events: 1
+    detector_requirements:
+      detector: "detect_lsass_access"
+      expected_confidence_minimum: 0.90
+    policy_requirements:
+      expected_rule: "RULE-CRED-005"
+      expected_verdict: "OBSERVE"
+    mutation_requirements:
+      primitive: "NONE"
+      expected_status: "NONE"
+    environment_verification_requirements:
+      checks: []
+    causal_requirements:
+      require_post_mutation_event: false
+      require_caused_by_mutation: false

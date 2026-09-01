@@ -1,0 +1,135 @@
+# Process Injection Policy Rules
+- id: RULE-INJECT-001
+  severity: CRITICAL
+  rationale: "Remote thread injection; activate memory monitor."
+  when:
+    intent: INJECT_REMOTE_THREAD
+    confidence_gte: 0.85
+  then:
+    action: ACTIVATE_MEMORY_MONITOR
+    action_category: MEASUREMENT
+    default_verdict: EXECUTE
+    priority: 95
+  budget:
+    max_per_session: 2
+    cooldown_seconds: 20
+
+- id: RULE-INJECT-002
+  severity: CRITICAL
+  rationale: "Process hollowing injection; activate EPT shadow hook."
+  when:
+    intent: INJECT_PROCESS_HOLLOWING
+    confidence_gte: 0.90
+  then:
+    action: ACTIVATE_EPT_SHADOW_HOOK
+    action_category: MEASUREMENT
+    default_verdict: EXECUTE
+    priority: 98
+  budget:
+    max_per_session: 2
+    cooldown_seconds: 20
+
+- id: RULE-INJECT-003
+  severity: CRITICAL
+  rationale: "QueueUserAPC injection; activate memory monitor."
+  when:
+    intent: INJECT_APC
+    confidence_gte: 0.90
+  then:
+    action: ACTIVATE_MEMORY_MONITOR
+    action_category: MEASUREMENT
+    default_verdict: EXECUTE
+    priority: 95
+  budget:
+    max_per_session: 2
+    cooldown_seconds: 20
+
+- id: RULE-INJECT-004
+  severity: CRITICAL
+  rationale: "Section mapping injection; activate memory monitor."
+  when:
+    intent: INJECT_SECTION_MAPPING
+    confidence_gte: 0.90
+  then:
+    action: ACTIVATE_MEMORY_MONITOR
+    action_category: MEASUREMENT
+    default_verdict: EXECUTE
+    priority: 95
+  budget:
+    max_per_session: 2
+    cooldown_seconds: 20
+
+- id: RULE-INJECT-005
+  severity: HIGH
+  rationale: "Thread context manipulation; activate memory monitor."
+  when:
+    intent: INJECT_THREAD_CONTEXT
+    confidence_gte: 0.85
+  then:
+    action: ACTIVATE_MEMORY_MONITOR
+    action_category: MEASUREMENT
+    default_verdict: EXECUTE
+    priority: 85
+  budget:
+    max_per_session: 2
+    cooldown_seconds: 20
+
+- id: RULE-INJECT-006
+  severity: CRITICAL
+  rationale: "Reflective DLL injection; activate EPT shadow hook."
+  when:
+    intent: INJECT_REFLECTIVE_DLL
+    confidence_gte: 0.90
+  then:
+    action: ACTIVATE_EPT_SHADOW_HOOK
+    action_category: MEASUREMENT
+    default_verdict: EXECUTE
+    priority: 98
+  budget:
+    max_per_session: 2
+    cooldown_seconds: 20
+
+- id: RULE-INJECT-007
+  severity: CRITICAL
+  rationale: "Process doppelganging injection; activate memory monitor."
+  when:
+    intent: INJECT_PROCESS_DOPPELGANGING
+    confidence_gte: 0.90
+  then:
+    action: ACTIVATE_MEMORY_MONITOR
+    action_category: MEASUREMENT
+    default_verdict: EXECUTE
+    priority: 98
+  budget:
+    max_per_session: 2
+    cooldown_seconds: 20
+
+- id: RULE-INJECT-008
+  severity: HIGH
+  rationale: "RWX memory allocation; activate memory monitor."
+  when:
+    intent: MEM_ALLOC_RWX
+    confidence_gte: 0.80
+  then:
+    action: ACTIVATE_MEMORY_MONITOR
+    action_category: MEASUREMENT
+    default_verdict: EXECUTE
+    priority: 85
+  budget:
+    max_per_session: 2
+    cooldown_seconds: 20
+
+- id: RULE-INJECT-009
+  severity: HIGH
+  rationale: "RWX memory protect; activate memory monitor."
+  when:
+    intent: MEM_PROTECT_RWX
+    confidence_gte: 0.80
+  then:
+    action: ACTIVATE_MEMORY_MONITOR
+    action_category: MEASUREMENT
+    default_verdict: EXECUTE
+    priority: 85
+  budget:
+    max_per_session: 2
+    cooldown_seconds: 20

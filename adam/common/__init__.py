@@ -1,0 +1,1 @@
+# ADAM Common package init

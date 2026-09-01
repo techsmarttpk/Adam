@@ -1,0 +1,255 @@
+# Execution Policy Rules
+- id: RULE-EXEC-001
+  severity: MEDIUM
+  rationale: "PowerShell interpreter execution; observe to feed higher-level inference."
+  when:
+    intent: EXEC_POWERSHELL
+    confidence_gte: 0.70
+  then:
+    action: NONE
+    action_category: OBSERVE
+    default_verdict: OBSERVE
+    priority: 40
+  budget:
+    max_per_session: 10
+    cooldown_seconds: 5
+
+- id: RULE-EXEC-002
+  severity: MEDIUM
+  rationale: "Command prompt execution; observe."
+  when:
+    intent: EXEC_CMD
+    confidence_gte: 0.70
+  then:
+    action: NONE
+    action_category: OBSERVE
+    default_verdict: OBSERVE
+    priority: 30
+  budget:
+    max_per_session: 10
+    cooldown_seconds: 5
+
+- id: RULE-EXEC-003
+  severity: MEDIUM
+  rationale: "WScript execution; observe."
+  when:
+    intent: EXEC_WSCRIPT
+    confidence_gte: 0.70
+  then:
+    action: NONE
+    action_category: OBSERVE
+    default_verdict: OBSERVE
+    priority: 40
+  budget:
+    max_per_session: 10
+    cooldown_seconds: 5
+
+- id: RULE-EXEC-004
+  severity: MEDIUM
+  rationale: "CScript execution; observe."
+  when:
+    intent: EXEC_CSCRIPT
+    confidence_gte: 0.70
+  then:
+    action: NONE
+    action_category: OBSERVE
+    default_verdict: OBSERVE
+    priority: 40
+  budget:
+    max_per_session: 10
+    cooldown_seconds: 5
+
+- id: RULE-EXEC-005
+  severity: HIGH
+  rationale: "MSHTA execution; observe."
+  when:
+    intent: EXEC_MSHTA
+    confidence_gte: 0.80
+  then:
+    action: NONE
+    action_category: OBSERVE
+    default_verdict: OBSERVE
+    priority: 60
+  budget:
+    max_per_session: 10
+    cooldown_seconds: 5
+
+- id: RULE-EXEC-006
+  severity: MEDIUM
+  rationale: "RunDLL32 execution; observe."
+  when:
+    intent: EXEC_RUNDLL32
+    confidence_gte: 0.70
+  then:
+    action: NONE
+    action_category: OBSERVE
+    default_verdict: OBSERVE
+    priority: 40
+  budget:
+    max_per_session: 10
+    cooldown_seconds: 5
+
+- id: RULE-EXEC-007
+  severity: MEDIUM
+  rationale: "Regsvr32 execution; observe."
+  when:
+    intent: EXEC_REGSVR32
+    confidence_gte: 0.70
+  then:
+    action: NONE
+    action_category: OBSERVE
+    default_verdict: OBSERVE
+    priority: 40
+  budget:
+    max_per_session: 10
+    cooldown_seconds: 5
+
+- id: RULE-EXEC-008
+  severity: MEDIUM
+  rationale: "WMI execution; observe."
+  when:
+    intent: EXEC_WMI
+    confidence_gte: 0.70
+  then:
+    action: NONE
+    action_category: OBSERVE
+    default_verdict: OBSERVE
+    priority: 40
+  budget:
+    max_per_session: 10
+    cooldown_seconds: 5
+
+- id: RULE-EXEC-009
+  severity: HIGH
+  rationale: "MSBuild LOLBAS execution; observe."
+  when:
+    intent: EXEC_MSBUILD
+    confidence_gte: 0.80
+  then:
+    action: NONE
+    action_category: OBSERVE
+    default_verdict: OBSERVE
+    priority: 60
+  budget:
+    max_per_session: 10
+    cooldown_seconds: 5
+
+- id: RULE-EXEC-010
+  severity: HIGH
+  rationale: "InstallUtil LOLBAS execution; observe."
+  when:
+    intent: EXEC_INSTALLUTIL
+    confidence_gte: 0.80
+  then:
+    action: NONE
+    action_category: OBSERVE
+    default_verdict: OBSERVE
+    priority: 60
+  budget:
+    max_per_session: 10
+    cooldown_seconds: 5
+
+- id: RULE-EXEC-011
+  severity: MEDIUM
+  rationale: "CertUtil LOLBAS execution; observe."
+  when:
+    intent: EXEC_CERTUTIL
+    confidence_gte: 0.70
+  then:
+    action: NONE
+    action_category: OBSERVE
+    default_verdict: OBSERVE
+    priority: 50
+  budget:
+    max_per_session: 10
+    cooldown_seconds: 5
+
+- id: RULE-EXEC-012
+  severity: MEDIUM
+  rationale: "BITSAdmin execution; observe."
+  when:
+    intent: EXEC_BITSADMIN
+    confidence_gte: 0.70
+  then:
+    action: NONE
+    action_category: OBSERVE
+    default_verdict: OBSERVE
+    priority: 50
+  budget:
+    max_per_session: 10
+    cooldown_seconds: 5
+
+- id: RULE-EXEC-013
+  severity: MEDIUM
+  rationale: "Control panel execution; observe."
+  when:
+    intent: EXEC_CONTROL
+    confidence_gte: 0.70
+  then:
+    action: NONE
+    action_category: OBSERVE
+    default_verdict: OBSERVE
+    priority: 30
+  budget:
+    max_per_session: 10
+    cooldown_seconds: 5
+
+- id: RULE-EXEC-014
+  severity: LOW
+  rationale: "ForFiles execution; observe."
+  when:
+    intent: EXEC_FORFILES
+    confidence_gte: 0.60
+  then:
+    action: NONE
+    action_category: OBSERVE
+    default_verdict: OBSERVE
+    priority: 20
+  budget:
+    max_per_session: 10
+    cooldown_seconds: 5
+
+- id: RULE-EXEC-015
+  severity: MEDIUM
+  rationale: "SchTasks execution; observe."
+  when:
+    intent: EXEC_SCHTASKS
+    confidence_gte: 0.70
+  then:
+    action: NONE
+    action_category: OBSERVE
+    default_verdict: OBSERVE
+    priority: 40
+  budget:
+    max_per_session: 10
+    cooldown_seconds: 5
+
+- id: RULE-EXEC-016
+  severity: LOW
+  rationale: "Netsh execution; observe."
+  when:
+    intent: EXEC_NETSH
+    confidence_gte: 0.60
+  then:
+    action: NONE
+    action_category: OBSERVE
+    default_verdict: OBSERVE
+    priority: 20
+  budget:
+    max_per_session: 10
+    cooldown_seconds: 5
+
+- id: RULE-EXEC-017
+  severity: HIGH
+  rationale: "WBAdmin execution; observe."
+  when:
+    intent: EXEC_WBADMIN
+    confidence_gte: 0.80
+  then:
+    action: NONE
+    action_category: OBSERVE
+    default_verdict: OBSERVE
+    priority: 60
+  budget:
+    max_per_session: 10
+    cooldown_seconds: 5

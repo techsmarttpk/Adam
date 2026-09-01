@@ -1,0 +1,90 @@
+# Malware Configuration Search Policy Rules
+- id: RULE-CFG-001
+  severity: MEDIUM
+  rationale: "C2 config search; observe."
+  when:
+    intent: CONFIG_C2_CONFIG_SEARCH
+    confidence_gte: 0.70
+  then:
+    action: NONE
+    action_category: OBSERVE
+    default_verdict: OBSERVE
+    priority: 40
+  budget:
+    max_per_session: 5
+    cooldown_seconds: 10
+
+- id: RULE-CFG-002
+  severity: MEDIUM
+  rationale: "Campaign ID search; observe."
+  when:
+    intent: CONFIG_CAMPAIGN_ID_SEARCH
+    confidence_gte: 0.70
+  then:
+    action: NONE
+    action_category: OBSERVE
+    default_verdict: OBSERVE
+    priority: 40
+  budget:
+    max_per_session: 5
+    cooldown_seconds: 10
+
+- id: RULE-CFG-003
+  severity: MEDIUM
+  rationale: "Operator ID search; observe."
+  when:
+    intent: CONFIG_OPERATOR_ID_SEARCH
+    confidence_gte: 0.70
+  then:
+    action: NONE
+    action_category: OBSERVE
+    default_verdict: OBSERVE
+    priority: 40
+  budget:
+    max_per_session: 5
+    cooldown_seconds: 10
+
+- id: RULE-CFG-004
+  severity: HIGH
+  rationale: "Encryption key search; observe."
+  when:
+    intent: CONFIG_ENCRYPTION_KEY_SEARCH
+    confidence_gte: 0.80
+  then:
+    action: NONE
+    action_category: OBSERVE
+    default_verdict: OBSERVE
+    priority: 60
+  budget:
+    max_per_session: 5
+    cooldown_seconds: 10
+
+- id: RULE-CFG-005
+  severity: MEDIUM
+  rationale: "Mutex search; observe."
+  when:
+    intent: CONFIG_MUTEX_SEARCH
+    confidence_gte: 0.70
+  then:
+    action: NONE
+    action_category: OBSERVE
+    default_verdict: OBSERVE
+    priority: 40
+  budget:
+    max_per_session: 5
+    cooldown_seconds: 10
+
+- id: RULE-CFG-006
+  severity: MEDIUM
+  rationale: "Deployment ID search; observe."
+  when:
+    intent: CONFIG_DEPLOYMENT_ID_SEARCH
+    confidence_gte: 0.70
+  then:
+    action: NONE
+    action_category: OBSERVE
+    default_verdict: OBSERVE
+    priority: 40
+  budget:
+    max_per_session: 5
+    cooldown_seconds: 10

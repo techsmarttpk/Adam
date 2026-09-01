@@ -592,6 +592,91 @@ select.form-control {
   border-color: rgba(255, 255, 255, 0.15);
 }
 
+/* Inferred Intent Severity Badges */
+.badge-sev-low {
+  background-color: rgba(57, 255, 20, 0.2) !important; /* Neon Green for LOW */
+  color: #39ff14 !important;
+  border: 1.5px solid #39ff14 !important;
+  box-shadow: 0 0 10px rgba(57, 255, 20, 0.4) !important;
+  font-weight: 800 !important;
+}
+
+.badge-sev-medium {
+  background-color: rgba(255, 234, 0, 0.18) !important;
+  color: #ffea00 !important;
+  border: 1px solid #ffea00 !important;
+  box-shadow: 0 0 10px rgba(255, 234, 0, 0.4) !important;
+  font-weight: 800 !important;
+}
+
+.badge-sev-high {
+  background-color: rgba(255, 140, 0, 0.22) !important;
+  color: #ff8c00 !important;
+  border: 1px solid #ff8c00 !important;
+  box-shadow: 0 0 10px rgba(255, 140, 0, 0.45) !important;
+  font-weight: 800 !important;
+}
+
+.badge-sev-critical {
+  background-color: rgba(255, 0, 60, 0.28) !important;
+  color: #ff003c !important;
+  border: 1px solid #ff003c !important;
+  box-shadow: 0 0 12px rgba(255, 0, 60, 0.55) !important;
+  font-weight: 800 !important;
+}
+
+/* ==========================================================================
+   FEED FILTER TOGGLE BUTTONS
+   ========================================================================== */
+.filter-btn {
+  transition: all 0.2s ease-in-out !important;
+  cursor: pointer !important;
+  color: #ffffff !important; /* Always readable crisp white text */
+  background-color: #0d1117 !important;
+  border: 1px solid rgba(255, 255, 255, 0.15) !important;
+  border-radius: var(--border-radius-sm) !important;
+  font-family: var(--font-mono) !important;
+  font-weight: 700 !important;
+  font-size: 0.8rem !important;
+  padding: 6px 14px !important;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  opacity: 0.65;
+}
+
+.filter-btn:hover {
+  opacity: 0.95 !important;
+  border-color: rgba(255, 255, 255, 0.3) !important;
+}
+
+/* Category-specific colored left border accents (Constant in active & inactive) */
+.filter-btn[data-filter="raw"] {
+  border-left: 3.5px solid #00d0ff !important; /* Cyan / Light Gray for Raw */
+}
+
+.filter-btn[data-filter="semantic"] {
+  border-left: 3.5px solid #39ff14 !important; /* Neon Green for Semantic */
+}
+
+.filter-btn[data-filter="decision"] {
+  border-left: 3.5px solid #ffea00 !important; /* Yellow / Amber for Decisions */
+}
+
+.filter-btn[data-filter="mutation"] {
+  border-left: 3.5px solid #ff003c !important; /* Red / Pink for Mutations */
+}
+
+/* Active State: Full opacity, bright white text, outer white glow via box-shadow */
+.filter-btn.active {
+  opacity: 1 !important;
+  color: #ffffff !important;
+  border-top-color: rgba(255, 255, 255, 0.6) !important;
+  border-right-color: rgba(255, 255, 255, 0.6) !important;
+  border-bottom-color: rgba(255, 255, 255, 0.6) !important;
+  box-shadow: 0 0 12px rgba(255, 255, 255, 0.45), inset 0 0 6px rgba(255, 255, 255, 0.08) !important;
+}
+
 /* Outline action pill buttons in tables */
 .table .btn-secondary, .table .btn-sm {
   border: 1.5px solid #39ff14 !important;
@@ -733,7 +818,8 @@ select.form-control {
 }
 
 .feed-row.raw {
-  border-left-color: var(--text-muted);
+  border-left-color: #00d0ff;
+  background: linear-gradient(90deg, rgba(0, 208, 255, 0.05) 0%, transparent 100%);
 }
 
 .feed-row.semantic {

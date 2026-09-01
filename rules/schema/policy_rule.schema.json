@@ -1,0 +1,54 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "PolicyRuleSchema",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "required": ["id", "when", "then"],
+    "properties": {
+      "id": {
+        "type": "string",
+        "pattern": "^RULE-[A-Z0-9_-]+$"
+      },
+      "severity": {
+        "type": "string",
+        "enum": ["CRITICAL", "HIGH", "MEDIUM", "LOW"]
+      },
+      "rationale": {
+        "type": "string"
+      },
+      "when": {
+        "type": "object",
+        "required": ["intent"],
+        "properties": {
+          "intent": { "type": "string" },
+          "confidence_gte": { "type": "number", "minimum": 0.0, "maximum": 1.0 },
+          "custom": { "type": "string" }
+        }
+      },
+      "then": {
+        "type": "object",
+        "required": ["action"],
+        "properties": {
+          "action": { "type": "string" },
+          "action_category": {
+            "type": "string",
+            "enum": ["MUTATE", "OBSERVE", "MEASUREMENT"]
+          },
+          "default_verdict": {
+            "type": "string",
+            "enum": ["EXECUTE", "OBSERVE", "DRY_RUN"]
+          },
+          "priority": { "type": "integer", "minimum": 0, "maximum": 100 }
+        }
+      },
+      "budget": {
+        "type": "object",
+        "properties": {
+          "max_per_session": { "type": "integer", "minimum": 1 },
+          "cooldown_seconds": { "type": "integer", "minimum": 0 }
+        }
+      }
+    }
+  }
+}

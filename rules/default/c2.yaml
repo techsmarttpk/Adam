@@ -1,0 +1,195 @@
+# Command and Control (C2) Policy Rules
+- id: RULE-C2-001
+  severity: MEDIUM
+  rationale: "DNS lookup for external C2; observe."
+  when:
+    intent: C2_DNS_LOOKUP
+    confidence_gte: 0.70
+  then:
+    action: NONE
+    action_category: OBSERVE
+    default_verdict: OBSERVE
+    priority: 40
+  budget:
+    max_per_session: 10
+    cooldown_seconds: 5
+
+- id: RULE-C2-002
+  severity: HIGH
+  rationale: "Outbound C2 beacon; fabricate synthetic C2 response."
+  when:
+    intent: C2_BEACON
+    confidence_gte: 0.80
+  then:
+    action: FABRICATE_C2_RESPONSE
+    action_category: MUTATE
+    default_verdict: EXECUTE
+    priority: 85
+  budget:
+    max_per_session: 3
+    cooldown_seconds: 15
+
+- id: RULE-C2-003
+  severity: HIGH
+  rationale: "Initial C2 beacon check-in; fabricate C2 response."
+  when:
+    intent: C2_BEACON_INITIAL
+    confidence_gte: 0.80
+  then:
+    action: FABRICATE_C2_RESPONSE
+    action_category: MUTATE
+    default_verdict: EXECUTE
+    priority: 85
+  budget:
+    max_per_session: 2
+    cooldown_seconds: 15
+
+- id: RULE-C2-004
+  severity: HIGH
+  rationale: "C2 beacon retry loop; fabricate C2 response."
+  when:
+    intent: C2_BEACON_RETRY
+    confidence_gte: 0.80
+  then:
+    action: FABRICATE_C2_RESPONSE
+    action_category: MUTATE
+    default_verdict: EXECUTE
+    priority: 85
+  budget:
+    max_per_session: 2
+    cooldown_seconds: 15
+
+- id: RULE-C2-005
+  severity: HIGH
+  rationale: "HTTP polling; fabricate HTTP C2 response."
+  when:
+    intent: C2_HTTP_POLLING
+    confidence_gte: 0.80
+  then:
+    action: FABRICATE_C2_RESPONSE
+    action_category: MUTATE
+    default_verdict: EXECUTE
+    priority: 85
+  budget:
+    max_per_session: 3
+    cooldown_seconds: 15
+
+- id: RULE-C2-006
+  severity: HIGH
+  rationale: "HTTPS polling; fabricate HTTPS C2 response."
+  when:
+    intent: C2_HTTPS_POLLING
+    confidence_gte: 0.80
+  then:
+    action: FABRICATE_C2_RESPONSE
+    action_category: MUTATE
+    default_verdict: EXECUTE
+    priority: 85
+  budget:
+    max_per_session: 3
+    cooldown_seconds: 15
+
+- id: RULE-C2-007
+  severity: CRITICAL
+  rationale: "DGA domain activity; activate C2 sinkhole."
+  when:
+    intent: C2_DGA_ACTIVITY
+    confidence_gte: 0.85
+  then:
+    action: ACTIVATE_C2_SINKHOLE
+    action_category: MUTATE
+    default_verdict: EXECUTE
+    priority: 95
+  budget:
+    max_per_session: 1
+    cooldown_seconds: 30
+
+- id: RULE-C2-008
+  severity: CRITICAL
+  rationale: "Fast flux DNS activity; activate C2 sinkhole."
+  when:
+    intent: C2_FAST_FLUX_ACTIVITY
+    confidence_gte: 0.85
+  then:
+    action: ACTIVATE_C2_SINKHOLE
+    action_category: MUTATE
+    default_verdict: EXECUTE
+    priority: 95
+  budget:
+    max_per_session: 1
+    cooldown_seconds: 30
+
+- id: RULE-C2-009
+  severity: HIGH
+  rationale: "IP direct connection; activate C2 sinkhole."
+  when:
+    intent: C2_IP_DIRECT_CONNECT
+    confidence_gte: 0.80
+  then:
+    action: ACTIVATE_C2_SINKHOLE
+    action_category: MUTATE
+    default_verdict: EXECUTE
+    priority: 90
+  budget:
+    max_per_session: 1
+    cooldown_seconds: 30
+
+- id: RULE-C2-010
+  severity: MEDIUM
+  rationale: "Proxy communication; observe."
+  when:
+    intent: C2_PROXY_COMMUNICATION
+    confidence_gte: 0.70
+  then:
+    action: NONE
+    action_category: OBSERVE
+    default_verdict: OBSERVE
+    priority: 40
+  budget:
+    max_per_session: 5
+    cooldown_seconds: 10
+
+- id: RULE-C2-011
+  severity: HIGH
+  rationale: "Custom C2 protocol; observe."
+  when:
+    intent: C2_CUSTOM_PROTOCOL
+    confidence_gte: 0.80
+  then:
+    action: NONE
+    action_category: OBSERVE
+    default_verdict: OBSERVE
+    priority: 60
+  budget:
+    max_per_session: 5
+    cooldown_seconds: 10
+
+- id: RULE-C2-012
+  severity: CRITICAL
+  rationale: "C2 command response; fabricate C2 response."
+  when:
+    intent: C2_COMMAND_RESPONSE
+    confidence_gte: 0.85
+  then:
+    action: FABRICATE_C2_RESPONSE
+    action_category: MUTATE
+    default_verdict: EXECUTE
+    priority: 95
+  budget:
+    max_per_session: 3
+    cooldown_seconds: 15
+
+- id: RULE-C2-013
+  severity: CRITICAL
+  rationale: "C2 stage download; fabricate C2 response."
+  when:
+    intent: C2_STAGE_DOWNLOAD
+    confidence_gte: 0.85
+  then:
+    action: FABRICATE_C2_RESPONSE
+    action_category: MUTATE
+    default_verdict: EXECUTE
+    priority: 95
+  budget:
+    max_per_session: 2
+    cooldown_seconds: 20

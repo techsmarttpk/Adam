@@ -1,0 +1,225 @@
+# Defense Evasion Policy Rules
+- id: RULE-EVADE-001
+  severity: HIGH
+  rationale: "AMSI bypass attempt; simulate AMSI target."
+  when:
+    intent: EVADE_AMSI_BYPASS
+    confidence_gte: 0.80
+  then:
+    action: SIMULATE_AMSI_TARGET
+    action_category: MUTATE
+    default_verdict: EXECUTE
+    priority: 85
+  budget:
+    max_per_session: 1
+    cooldown_seconds: 30
+
+- id: RULE-EVADE-002
+  severity: HIGH
+  rationale: "ETW tampering attempt; observe."
+  when:
+    intent: EVADE_ETW_TAMPERING
+    confidence_gte: 0.80
+  then:
+    action: NONE
+    action_category: OBSERVE
+    default_verdict: OBSERVE
+    priority: 80
+  budget:
+    max_per_session: 5
+    cooldown_seconds: 15
+
+- id: RULE-EVADE-003
+  severity: HIGH
+  rationale: "Defender tampering; simulate security configuration."
+  when:
+    intent: EVADE_DEFENDER_TAMPERING
+    confidence_gte: 0.80
+  then:
+    action: SIMULATE_SECURITY_CONFIGURATION
+    action_category: MUTATE
+    default_verdict: EXECUTE
+    priority: 85
+  budget:
+    max_per_session: 1
+    cooldown_seconds: 30
+
+- id: RULE-EVADE-004
+  severity: MEDIUM
+  rationale: "Firewall check; spoof firewall state."
+  when:
+    intent: EVADE_FIREWALL_CHECK
+    confidence_gte: 0.75
+  then:
+    action: SPOOF_FIREWALL_STATE
+    action_category: MUTATE
+    default_verdict: EXECUTE
+    priority: 75
+  budget:
+    max_per_session: 1
+    cooldown_seconds: 30
+
+- id: RULE-EVADE-005
+  severity: CRITICAL
+  rationale: "Event log clear; observe anti-forensics behavior."
+  when:
+    intent: EVADE_EVENT_LOG_CLEAR
+    confidence_gte: 0.90
+  then:
+    action: NONE
+    action_category: OBSERVE
+    default_verdict: OBSERVE
+    priority: 90
+  budget:
+    max_per_session: 5
+    cooldown_seconds: 15
+
+- id: RULE-EVADE-006
+  severity: CRITICAL
+  rationale: "Process hollowing evasion; activate EPT shadow hook."
+  when:
+    intent: EVADE_PROCESS_HOLLOWING
+    confidence_gte: 0.90
+  then:
+    action: ACTIVATE_EPT_SHADOW_HOOK
+    action_category: MEASUREMENT
+    default_verdict: EXECUTE
+    priority: 95
+  budget:
+    max_per_session: 2
+    cooldown_seconds: 20
+
+- id: RULE-EVADE-007
+  severity: HIGH
+  rationale: "Parent process spoof check; spoof parent process."
+  when:
+    intent: EVADE_PARENT_PROCESS_CHECK
+    confidence_gte: 0.80
+  then:
+    action: SPOOF_PARENT_PROCESS
+    action_category: MUTATE
+    default_verdict: EXECUTE
+    priority: 85
+  budget:
+    max_per_session: 1
+    cooldown_seconds: 30
+
+- id: RULE-EVADE-008
+  severity: HIGH
+  rationale: "Debugger check; spoof debugger state (peb.BeingDebugged=0)."
+  when:
+    intent: EVADE_DEBUGGER_CHECK
+    confidence_gte: 0.80
+  then:
+    action: SPOOF_DEBUGGER_STATE
+    action_category: MUTATE
+    default_verdict: EXECUTE
+    priority: 85
+  budget:
+    max_per_session: 1
+    cooldown_seconds: 30
+
+- id: RULE-EVADE-009
+  severity: CRITICAL
+  rationale: "VM artifact check; spoof hardware identity."
+  when:
+    intent: EVADE_VM_ARTIFACT_CHECK
+    confidence_gte: 0.85
+  then:
+    action: SPOOF_HARDWARE_IDENTITY
+    action_category: MUTATE
+    default_verdict: EXECUTE
+    priority: 95
+  budget:
+    max_per_session: 1
+    cooldown_seconds: 30
+
+- id: RULE-EVADE-010
+  severity: CRITICAL
+  rationale: "Analysis tool check; hide analysis artifacts."
+  when:
+    intent: EVADE_ANALYSIS_TOOL_CHECK
+    confidence_gte: 0.85
+  then:
+    action: HIDE_ANALYSIS_ARTIFACTS
+    action_category: MUTATE
+    default_verdict: EXECUTE
+    priority: 95
+  budget:
+    max_per_session: 1
+    cooldown_seconds: 30
+
+- id: RULE-EVADE-011
+  severity: HIGH
+  rationale: "Sandbox user profile check; trigger user simulation."
+  when:
+    intent: EVADE_SANDBOX_USER_PROFILE
+    confidence_gte: 0.80
+  then:
+    action: TRIGGER_USER_SIMULATION
+    action_category: MUTATE
+    default_verdict: EXECUTE
+    priority: 80
+  budget:
+    max_per_session: 1
+    cooldown_seconds: 30
+
+- id: RULE-EVADE-012
+  severity: HIGH
+  rationale: "Timing delay / RDTSC check; normalize timing."
+  when:
+    intent: EVADE_TIME_DELAY_CHECK
+    confidence_gte: 0.80
+  then:
+    action: NORMALIZE_TIMING
+    action_category: MUTATE
+    default_verdict: EXECUTE
+    priority: 80
+  budget:
+    max_per_session: 1
+    cooldown_seconds: 30
+
+- id: RULE-EVADE-013
+  severity: HIGH
+  rationale: "Sandbox hardware check (legacy); spoof hardware identity."
+  when:
+    intent: SANDBOX_HARDWARE_CHECK
+    confidence_gte: 0.75
+  then:
+    action: SPOOF_HARDWARE_IDENTITY
+    action_category: MUTATE
+    default_verdict: EXECUTE
+    priority: 90
+  budget:
+    max_per_session: 1
+    cooldown_seconds: 30
+
+- id: RULE-EVADE-014
+  severity: HIGH
+  rationale: "Sandbox process check; hide analysis artifacts."
+  when:
+    intent: SANDBOX_PROCESS_CHECK
+    confidence_gte: 0.75
+  then:
+    action: HIDE_ANALYSIS_ARTIFACTS
+    action_category: MUTATE
+    default_verdict: EXECUTE
+    priority: 90
+  budget:
+    max_per_session: 1
+    cooldown_seconds: 30
+
+- id: RULE-EVADE-015
+  severity: HIGH
+  rationale: "Sandbox generic evasion detected; spoof hardware identity."
+  when:
+    intent: EVADE_SANDBOX_DETECTED
+    confidence_gte: 0.75
+  then:
+    action: SPOOF_HARDWARE_IDENTITY
+    action_category: MUTATE
+    default_verdict: EXECUTE
+    priority: 95
+  budget:
+    max_per_session: 1
+    cooldown_seconds: 30

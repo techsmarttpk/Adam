@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block title %}ADAM Sessions{% endblock %}
+{% block content %}
+<div class="card">
+    <div style="display: flex; justify-content: space-between; align-items: center;">
+        <h2>Analysis Sessions</h2>
+        <button class="btn" onclick="startNewSession()">Trigger Session</button>
+    </div>
+    <table>
+        <thead>
+            <tr>
+                <th>Session ID</th>
+                <th>Experiment ID</th>
+                <th>Arm</th>
+                <th>Status</th>
+                <th>Started At</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for s in sessions %}
+            <tr>
+                <td><code>{{ s.session_id }}</code></td>
+                <td>{{ s.experiment_id }}</td>
+                <td><span class="badge" style="background-color: {% if s.arm == 'TREATMENT' %}rgba(99, 102, 241, 0.2){% else %}rgba(243, 244, 246, 0.1){% endif %};">{{ s.arm }}</span></td>
+                <td><span class="badge badge-{{ s.status.lower() }}">{{ s.status }}</span></td>
+                <td>{{ s.started_at }}</td>
+                <td><a href="/dashboard/sessions/{{ s.session_id }}" class="btn" style="text-decoration: none; font-size: 0.85rem;">View</a></td>
+            </tr>
+            {% else %}
+            <tr>
+                <td colspan="6" style="text-align: center; color: var(--text-muted);">No analysis sessions logged yet.</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<script>
+async function startNewSession() {
+    const filename = prompt("Enter malware sample filename to run:", "sample.exe");
+    if (!filename) return;
+    
+    const response = await fetch('/api/v1/sessions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            experiment_id: 'exp_manual_' + Math.floor(Math.random() * 1000),
+            arm: 'TREATMENT',
+            filename: filename,
+            size_bytes: 1024,
+            deception_enabled: true,
+            timeout_seconds: 15
+        })
+    });
+    
+    if (response.ok) {
+        alert("Session run triggered successfully! Reloading dashboard...");
+        location.reload();
+    } else {
+        alert("Failed to start session: " + await response.text());
+    }
+}
+</script>
+{% endblock %}

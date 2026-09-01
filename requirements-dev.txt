@@ -1,15 +1,7 @@
-# Dev-only dependencies (ARCHITECTURE.md section 15.3's "Dev-only" row).
-# Not required to run adam/ itself -- only to run its test suite.
-#
-# pytest/pytest-asyncio were always the architecturally planned test
-# framework (tests/ already existed with unit/integration/e2e/fixtures
-# subdirectories before any test file did) but had never actually been
-# introduced until the Phase 5 HTTP guest agent work needed real,
-# executable "unit tests, integration tests, mock HTTP server tests,
-# serialization tests" -- see docs/phase5-migration-guide.md.
-
--r requirements.txt
-
-pytest>=8,<9
-pytest-asyncio>=0.24,<1
-mypy>=1.10,<2
+hypothesis>=6.0.0
+import-linter==2.13
+mypy==2.3.0
+pytest==9.1.1
+pytest-asyncio==1.4.0
+pytest-cov==7.1.0
+ruff==0.16.0

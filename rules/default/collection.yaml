@@ -1,0 +1,150 @@
+# Data Collection Policy Rules
+- id: RULE-COLLECT-001
+  severity: HIGH
+  rationale: "Documents collection; plant decoy documents."
+  when:
+    intent: COLLECT_DOCUMENTS
+    confidence_gte: 0.75
+  then:
+    action: PLANT_DECOY_DOCUMENTS
+    action_category: MUTATE
+    default_verdict: EXECUTE
+    priority: 85
+  budget:
+    max_per_session: 2
+    cooldown_seconds: 20
+
+- id: RULE-COLLECT-002
+  severity: HIGH
+  rationale: "Financial files collection; plant decoy financial data."
+  when:
+    intent: COLLECT_FINANCIAL_FILES
+    confidence_gte: 0.75
+  then:
+    action: PLANT_DECOY_FINANCIAL_DATA
+    action_category: MUTATE
+    default_verdict: EXECUTE
+    priority: 85
+  budget:
+    max_per_session: 1
+    cooldown_seconds: 30
+
+- id: RULE-COLLECT-003
+  severity: HIGH
+  rationale: "Browser data collection; inject fake browser credentials."
+  when:
+    intent: COLLECT_BROWSER_DATA
+    confidence_gte: 0.75
+  then:
+    action: INJECT_FAKE_BROWSER_CREDS
+    action_category: MUTATE
+    default_verdict: EXECUTE
+    priority: 85
+  budget:
+    max_per_session: 1
+    cooldown_seconds: 30
+
+- id: RULE-COLLECT-004
+  severity: HIGH
+  rationale: "Email data collection; plant decoy email data."
+  when:
+    intent: COLLECT_EMAIL_DATA
+    confidence_gte: 0.75
+  then:
+    action: PLANT_DECOY_EMAIL_DATA
+    action_category: MUTATE
+    default_verdict: EXECUTE
+    priority: 85
+  budget:
+    max_per_session: 1
+    cooldown_seconds: 30
+
+- id: RULE-COLLECT-005
+  severity: HIGH
+  rationale: "Archive staging collection; plant decoy archives."
+  when:
+    intent: COLLECT_ARCHIVES
+    confidence_gte: 0.75
+  then:
+    action: PLANT_DECOY_ARCHIVES
+    action_category: MUTATE
+    default_verdict: EXECUTE
+    priority: 80
+  budget:
+    max_per_session: 1
+    cooldown_seconds: 30
+
+- id: RULE-COLLECT-006
+  severity: HIGH
+  rationale: "Database data collection; synthesize decoy database."
+  when:
+    intent: COLLECT_DATABASE_DATA
+    confidence_gte: 0.80
+  then:
+    action: SYNTHESIZE_DECOY_DATABASE
+    action_category: MUTATE
+    default_verdict: EXECUTE
+    priority: 85
+  budget:
+    max_per_session: 1
+    cooldown_seconds: 30
+
+- id: RULE-COLLECT-007
+  severity: HIGH
+  rationale: "Source code collection; plant decoy source repository."
+  when:
+    intent: COLLECT_SOURCE_CODE
+    confidence_gte: 0.75
+  then:
+    action: PLANT_DECOY_SOURCE_REPOSITORY
+    action_category: MUTATE
+    default_verdict: EXECUTE
+    priority: 85
+  budget:
+    max_per_session: 1
+    cooldown_seconds: 30
+
+- id: RULE-COLLECT-008
+  severity: HIGH
+  rationale: "Cloud config collection; plant decoy cloud config."
+  when:
+    intent: COLLECT_CLOUD_CONFIG
+    confidence_gte: 0.80
+  then:
+    action: PLANT_DECOY_CLOUD_CONFIG
+    action_category: MUTATE
+    default_verdict: EXECUTE
+    priority: 85
+  budget:
+    max_per_session: 1
+    cooldown_seconds: 30
+
+- id: RULE-COLLECT-009
+  severity: HIGH
+  rationale: "SSH keys collection; plant decoy private keys."
+  when:
+    intent: COLLECT_SSH_KEYS
+    confidence_gte: 0.80
+  then:
+    action: PLANT_DECOY_PRIVATE_KEYS
+    action_category: MUTATE
+    default_verdict: EXECUTE
+    priority: 85
+  budget:
+    max_per_session: 1
+    cooldown_seconds: 30
+
+- id: RULE-COLLECT-010
+  severity: HIGH
+  rationale: "Browser cookies collection; plant decoy session data."
+  when:
+    intent: COLLECT_BROWSER_COOKIES
+    confidence_gte: 0.75
+  then:
+    action: PLANT_DECOY_SESSION_DATA
+    action_category: MUTATE
+    default_verdict: EXECUTE
+    priority: 85
+  budget:
+    max_per_session: 1
+    cooldown_seconds: 30

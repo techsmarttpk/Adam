@@ -43,3 +43,4 @@ samples/*
 *.pcap
 *.evtx
 *.pml
+adam_telemetry

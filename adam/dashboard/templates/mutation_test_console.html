@@ -1,0 +1,370 @@
+{% extends "base.html" %}
+
+{% block title %}ADAM — Mutation Test Console & Live Inspection{% endblock %}
+
+{% block nav_mutation_test_class %}active{% endblock %}
+
+{% block breadcrumbs %}
+<span class="breadcrumb-separator">></span>
+<span class="breadcrumb-active">Mutation Test Console</span>
+{% endblock %}
+
+{% block header_actions %}
+  <div style="display: flex; gap: 10px; align-items: center;">
+    <div id="connection-status-badge" class="badge" style="background: rgba(57, 255, 20, 0.15); color: #39ff14; border: 1px solid #39ff14;">
+      SSE: Connecting...
+    </div>
+    <button class="btn btn-secondary btn-sm" id="btn-pause-stream">
+      <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+      <span id="pause-stream-text">Pause Stream</span>
+    </button>
+    <button class="btn btn-secondary btn-sm" id="btn-clear-console">
+      <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+      Clear Log
+    </button>
+  </div>
+{% endblock %}
+
+{% block content %}
+<div class="mutation-console-grid" style="display: grid; grid-template-columns: 380px minmax(0, 1fr); gap: 24px; align-items: start;">
+
+  <!-- LEFT PANEL: TEST CONTROLLER & COMMAND SELECTOR -->
+  <aside class="sidebar-panel" style="display: flex; flex-direction: column; gap: 18px; width: 100%;">
+    
+    <!-- TEST SESSION INJECTION CARD -->
+    <div class="card">
+      <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+        <h3 class="card-title" style="font-size: 1rem; color: #39ff14;">1. Test Harness Session</h3>
+        <span id="harness-injected-badge" class="badge" style="background: rgba(255, 0, 60, 0.2); color: #ff003c; border: 1px solid #ff003c;">Not Injected</span>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 12px; font-size: 0.85rem;">
+        <div>
+          <label style="color: var(--text-secondary); display: block; margin-bottom: 4px; font-weight: 600;">Test Session ID</label>
+          <input type="text" id="input-session-id" class="input-control" value="{{ default_session_id }}" style="width: 100%; font-family: var(--font-mono); padding: 8px 12px; background: rgba(0,0,0,0.5); border: 1px solid rgba(57, 255, 20, 0.3); color: #fff; border-radius: 4px;">
+        </div>
+
+        <div>
+          <label style="color: var(--text-secondary); display: block; margin-bottom: 4px; font-weight: 600;">Target Executable</label>
+          <div style="display: flex; align-items: center; justify-content: space-between; padding: 6px 10px; background: rgba(57, 255, 20, 0.05); border: 1px dashed rgba(57, 255, 20, 0.4); border-radius: 4px;">
+            <span style="font-family: var(--font-mono); font-size: 0.8rem; color: #fff;">adam_mutation_test.exe</span>
+            <span class="badge badge-sm" style="background: #39ff14; color: #000; font-weight: 700;">v1.0.0</span>
+          </div>
+        </div>
+
+        <div style="display: flex; gap: 8px; margin-top: 6px;">
+          <button class="btn btn-primary" id="btn-inject-harness" style="flex: 1; justify-content: center;">
+            <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg>
+            Inject Executable
+          </button>
+          <button class="btn btn-secondary" id="btn-stop-session" style="width: 80px; justify-content: center; color: #ff003c; border-color: rgba(255,0,60,0.3);">
+            Stop
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- SEVERITY FILTER & COMMAND SELECTOR -->
+    <div class="card">
+      <div class="card-header">
+        <h3 class="card-title" style="font-size: 1rem; color: #39ff14;">2. Select Test Behavior</h3>
+      </div>
+
+      <!-- Severity Filter Pills -->
+      <div style="display: flex; gap: 4px; margin-bottom: 14px; flex-wrap: wrap;">
+        <button class="filter-pill active" data-sev="ALL">ALL</button>
+        <button class="filter-pill" data-sev="CRITICAL" style="--pill-color: #ff003c;">CRITICAL</button>
+        <button class="filter-pill" data-sev="HIGH" style="--pill-color: #ffaa00;">HIGH</button>
+        <button class="filter-pill" data-sev="MEDIUM" style="--pill-color: #39ff14;">MEDIUM</button>
+        <button class="filter-pill" data-sev="LOW" style="--pill-color: #00e5ff;">LOW</button>
+        <button class="filter-pill" data-sev="OBSERVE" style="--pill-color: #888888;">OBSERVE</button>
+      </div>
+
+      <!-- Command Dropdown -->
+      <div style="margin-bottom: 14px;">
+        <label style="color: var(--text-secondary); display: block; margin-bottom: 4px; font-weight: 600;">Test Command</label>
+        <select id="select-command" class="input-control" style="width: 100%; padding: 8px; background: #0d1117; border: 1px solid rgba(57,255,20,0.3); color: #fff; border-radius: 4px;">
+          {% for cmd in manifest.commands %}
+            <option value="{{ cmd.id }}" data-severity="{{ cmd.severity }}">{{ cmd.severity }} | {{ cmd.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <!-- EXPECTED INTENT & ACTION PREVIEW CARD -->
+      <div id="expected-spec-card" style="background: rgba(0,0,0,0.4); border: 1px solid rgba(57,255,20,0.2); border-radius: 6px; padding: 12px; font-size: 0.8rem; display: flex; flex-direction: column; gap: 8px;">
+        <div>
+          <span style="color: var(--text-muted); display: block; font-size: 0.7rem; text-transform: uppercase;">Description</span>
+          <span id="exp-desc" style="color: #fff; font-weight: 500;">--</span>
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+          <div>
+            <span style="color: var(--text-muted); display: block; font-size: 0.7rem; text-transform: uppercase;">Expected Intent</span>
+            <code id="exp-intent" style="color: #39ff14; font-weight: 700;">--</code>
+          </div>
+          <div>
+            <span style="color: var(--text-muted); display: block; font-size: 0.7rem; text-transform: uppercase;">Expected Action</span>
+            <code id="exp-action" style="color: #ffea00; font-weight: 700;">--</code>
+          </div>
+        </div>
+        <div>
+          <span style="color: var(--text-muted); display: block; font-size: 0.7rem; text-transform: uppercase;">Telemetry Pattern</span>
+          <span id="exp-telemetry" style="color: var(--text-secondary); font-size: 0.75rem;">--</span>
+        </div>
+      </div>
+
+      <!-- EXECUTE BUTTON -->
+      <button class="btn btn-success" id="btn-execute-command" style="width: 100%; margin-top: 14px; padding: 10px; font-weight: 700; font-size: 0.95rem; justify-content: center;">
+        <svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"></path></svg>
+        Execute Test Stimulus
+      </button>
+    </div>
+
+    <!-- 3. TEST RESULT VALIDATION & PIPELINE INTEGRITY CARD -->
+    <div class="card" id="test-result-card" style="border-left: 4px solid var(--border-color);">
+      <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+        <h3 class="card-title" style="font-size: 0.95rem; color: #39ff14;">3. Test Validation Result</h3>
+        <span id="result-verdict-badge" class="badge" style="background: rgba(255,255,255,0.1); color: #fff;">READY</span>
+      </div>
+      <div style="font-size: 0.8rem; display: flex; flex-direction: column; gap: 8px;">
+        <div style="display: flex; justify-content: space-between;">
+          <span style="color: var(--text-muted);">Intent Match:</span>
+          <strong id="res-intent-match">--</strong>
+        </div>
+        <div style="display: flex; justify-content: space-between;">
+          <span style="color: var(--text-muted);">Policy Decision:</span>
+          <strong id="res-policy-match">--</strong>
+        </div>
+        <div style="display: flex; justify-content: space-between;">
+          <span style="color: var(--text-muted);">Mutation Status:</span>
+          <strong id="res-mutation-match">--</strong>
+        </div>
+        <div style="display: flex; justify-content: space-between;">
+          <span style="color: var(--text-muted);">End-to-End Latency:</span>
+          <span id="res-latency" style="font-family: var(--font-mono);">--</span>
+        </div>
+      </div>
+
+      <!-- Stage-Level Checklist -->
+      <div style="margin-top: 12px; border-top: 1px dashed rgba(255,255,255,0.1); padding-top: 8px;">
+        <div style="color: var(--text-muted); font-size: 0.7rem; text-transform: uppercase; margin-bottom: 6px; font-weight: 700;">Stage Verification</div>
+        <!-- Validation Matches -->
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; font-size: 0.78rem;">
+          <div>
+            <span style="color: var(--text-muted); display: block;">Intent Match</span>
+            <span id="res-intent-match" style="color: #fff; font-weight: 600;">--</span>
+          </div>
+          <div>
+            <span style="color: var(--text-muted); display: block;">Policy Match</span>
+            <span id="res-policy-match" style="color: #fff; font-weight: 600;">--</span>
+          </div>
+          <div>
+            <span style="color: var(--text-muted); display: block;">Mutation Match</span>
+            <span id="res-mutation-match" style="color: #fff; font-weight: 600;">--</span>
+          </div>
+          <div>
+            <span style="color: var(--text-muted); display: block;">Latency</span>
+            <span id="res-latency" style="color: #fff; font-weight: 600;">--</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </aside>
+
+  <!-- CENTER & RIGHT: LIVE CONSOLE + MUTATION INSPECTOR -->
+  <main class="content-panel" style="flex: 1; display: flex; flex-direction: column; gap: 18px; min-width: 0;">
+    
+    <!-- TOP SECTION: LIVE CHRONOLOGICAL EVENT CONSOLE -->
+    <div class="card" style="flex: 1; min-height: 380px; display: flex; flex-direction: column;">
+      <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <div class="pulse-indicator"></div>
+          <h3 class="card-title" style="font-size: 1.05rem;">Live Telemetry & Closed-Loop Console</h3>
+        </div>
+        <div style="display: flex; gap: 8px; font-size: 0.75rem;">
+          <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; color: var(--text-secondary);">
+            <input type="checkbox" id="chk-autoscroll" checked> Auto-scroll
+          </label>
+        </div>
+      </div>
+
+      <!-- Live Stream Feed Container -->
+      <div id="live-console-feed" class="feed-box" style="flex: 1; max-height: 420px; overflow-y: auto; font-family: var(--font-mono); font-size: 0.82rem; padding: 14px; background: #07090e; border: 1px solid rgba(57,255,20,0.15); border-radius: 6px; display: flex; flex-direction: column; gap: 8px;">
+        <div class="console-welcome" style="color: var(--text-muted); text-align: center; padding: 40px 0;">
+          [ ADAM MUTATION TEST CONSOLE READY ]<br>
+          Select a test session and click 'Inject Executable' to stream real-time events.
+        </div>
+      </div>
+    </div>
+
+    <!-- BOTTOM SECTION: MUTATION INSPECTOR -->
+    <div class="card" id="mutation-inspector-card" style="border-top: 3px solid #39ff14; min-height: 280px;">
+      <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <svg width="18" height="18" fill="none" stroke="#39ff14" stroke-width="2" viewBox="0 0 24 24"><path d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"></path></svg>
+          <h3 class="card-title" style="font-size: 1.05rem; color: #fff;">Mutation Inspector</h3>
+        </div>
+        <div style="display: flex; gap: 8px;">
+          <span id="insp-badge-status" class="badge badge-treatment" style="display: none;">APPLIED</span>
+        </div>
+      </div>
+
+      <div id="inspector-placeholder" style="color: var(--text-muted); text-align: center; padding: 30px;">
+        Click on any <span style="color: #ffea00; font-weight: 700;">[MUTATION]</span> card in the Live Console above to inspect the exact synthetic environment artifacts that ADAM generated.
+      </div>
+
+      <div id="inspector-content" style="display: none; font-size: 0.85rem;">
+        
+        <!-- Metadata Header Grid -->
+        <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; background: rgba(57,255,20,0.04); padding: 12px; border-radius: 6px; margin-bottom: 16px;">
+          <div>
+            <span style="color: var(--text-muted); display: block; font-size: 0.7rem; text-transform: uppercase;">Mutation Primitive</span>
+            <code id="insp-primitive" style="color: #39ff14; font-weight: 700; font-size: 0.9rem;">--</code>
+          </div>
+          <div>
+            <span style="color: var(--text-muted); display: block; font-size: 0.7rem; text-transform: uppercase;">Correlation ID</span>
+            <code id="insp-corr-id" style="color: #fff; font-size: 0.8rem;">--</code>
+          </div>
+          <div>
+            <span style="color: var(--text-muted); display: block; font-size: 0.7rem; text-transform: uppercase;">Plausibility Score</span>
+            <span id="insp-plausibility" style="color: #39ff14; font-weight: 700;">--</span>
+          </div>
+          <div>
+            <span style="color: var(--text-muted); display: block; font-size: 0.7rem; text-transform: uppercase;">Latency / Window</span>
+            <span id="insp-latency-window" style="color: #fff;">--</span>
+          </div>
+        </div>
+
+        <!-- Human-Readable Structured Environment Explanation -->
+        <div style="background: rgba(0,0,0,0.3); border: 1px solid rgba(57,255,20,0.2); border-radius: 6px; padding: 14px; margin-bottom: 16px;">
+          <h4 id="insp-expl-title" style="color: #39ff14; margin-bottom: 6px; font-size: 0.95rem;">Generated Environment</h4>
+          <p id="insp-expl-summary" style="color: #fff; margin-bottom: 12px; line-height: 1.5; font-size: 0.85rem;">--</p>
+          
+          <div id="insp-expl-artifacts" style="display: flex; flex-direction: column; gap: 6px; font-family: var(--font-mono); font-size: 0.8rem;">
+            <!-- Key-value artifact lists dynamically inserted -->
+          </div>
+        </div>
+
+        <!-- Raw Environment Changes Table -->
+        <div>
+          <h4 style="color: var(--text-secondary); margin-bottom: 8px; font-size: 0.85rem; text-transform: uppercase;">Exact Environment Changes (MutationChange)</h4>
+          <div style="overflow-x: auto;">
+            <table class="table" style="width: 100%; font-size: 0.8rem;">
+              <thead>
+                <tr>
+                  <th style="width: 90px;">Kind</th>
+                  <th style="width: 100px;">Operation</th>
+                  <th>Target</th>
+                  <th>Value</th>
+                </tr>
+              </thead>
+              <tbody id="insp-changes-tbody">
+                <!-- Dynamic rows -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+  </main>
+</div>
+{% endblock %}
+
+{% block extra_head %}
+<style>
+.filter-pill {
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.15);
+  color: #ccc;
+  padding: 4px 10px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.filter-pill:hover {
+  background: rgba(57,255,20,0.15);
+  border-color: #39ff14;
+  color: #39ff14;
+}
+.filter-pill.active {
+  background: var(--pill-color, #39ff14);
+  color: #000000;
+  font-weight: 700;
+  border-color: var(--pill-color, #39ff14);
+  box-shadow: 0 0 10px rgba(57,255,20,0.3);
+}
+
+.console-event-card {
+  border-left: 3px solid #555;
+  background: rgba(13, 17, 23, 0.85);
+  padding: 8px 12px;
+  border-radius: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  transition: background 0.15s ease;
+  cursor: pointer;
+}
+.console-event-card:hover {
+  background: rgba(22, 29, 45, 0.95);
+}
+
+.console-event-card.event-raw { border-left-color: #00e5ff; }
+.console-event-card.event-semantic { border-left-color: #39ff14; }
+.console-event-card.event-policy { border-left-color: #ffaa00; }
+.console-event-card.event-mutation { border-left-color: #ff0077; background: rgba(255, 0, 119, 0.08); }
+
+.mutation-console-grid {
+  display: grid;
+  grid-template-columns: 380px minmax(0, 1fr);
+  gap: 24px;
+  align-items: start;
+  width: 100%;
+}
+
+@media (max-width: 1200px) {
+  .mutation-console-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.content-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  min-width: 0;
+  width: 100%;
+}
+
+#live-console-feed {
+  max-height: 420px;
+  min-height: 220px;
+  overflow-y: auto;
+}
+
+#causal-timeline-container {
+  display: flex;
+  gap: 12px;
+  overflow-x: auto;
+  padding: 12px 4px;
+  scrollbar-width: thin;
+}
+
+#causal-timeline-container::-webkit-scrollbar {
+  height: 6px;
+}
+
+#causal-timeline-container::-webkit-scrollbar-thumb {
+  background: rgba(57, 255, 20, 0.3);
+  border-radius: 3px;
+}
+</style>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="/static/mutation_test.js?v=4"></script>
+{% endblock %}

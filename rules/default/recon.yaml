@@ -1,0 +1,466 @@
+# Discovery & Reconnaissance Policy Rules
+- id: RULE-RECON-001
+  severity: HIGH
+  rationale: "Domain controller discovery indicates active lateral prep; synthesize fake DC environment."
+  when:
+    intent: RECON_DOMAIN_CONTROLLER
+    confidence_gte: 0.75
+  then:
+    action: SPAWN_FAKE_DC_ARTIFACTS
+    action_category: MUTATE
+    default_verdict: EXECUTE
+    priority: 80
+  budget:
+    max_per_session: 1
+    cooldown_seconds: 30
+
+- id: RULE-RECON-002
+  severity: HIGH
+  rationale: "Network share enumeration; mount decoy corporate share."
+  when:
+    intent: RECON_NETWORK_SHARES
+    confidence_gte: 0.75
+  then:
+    action: MOUNT_FAKE_NETWORK_SHARE
+    action_category: MUTATE
+    default_verdict: EXECUTE
+    priority: 80
+  budget:
+    max_per_session: 1
+    cooldown_seconds: 30
+
+- id: RULE-RECON-003
+  severity: HIGH
+  rationale: "Installed AV check; simulate Windows Defender presence."
+  when:
+    intent: RECON_INSTALLED_AV
+    confidence_gte: 0.75
+  then:
+    action: SIMULATE_AV_PRESENCE
+    action_category: MUTATE
+    default_verdict: EXECUTE
+    priority: 75
+  budget:
+    max_per_session: 1
+    cooldown_seconds: 30
+
+- id: RULE-RECON-004
+  severity: LOW
+  rationale: "System info query is background contextual telemetry."
+  when:
+    intent: RECON_SYSTEM_INFO
+    confidence_gte: 0.60
+  then:
+    action: NONE
+    action_category: OBSERVE
+    default_verdict: OBSERVE
+    priority: 20
+  budget:
+    max_per_session: 10
+    cooldown_seconds: 5
+
+- id: RULE-RECON-005
+  severity: LOW
+  rationale: "Network configuration query; observe without active mutation."
+  when:
+    intent: RECON_NETWORK_CONFIG
+    confidence_gte: 0.60
+  then:
+    action: NONE
+    action_category: OBSERVE
+    default_verdict: OBSERVE
+    priority: 20
+  budget:
+    max_per_session: 10
+    cooldown_seconds: 5
+
+- id: RULE-RECON-006
+  severity: MEDIUM
+  rationale: "Process discovery probing; spawn realistic decoy background processes."
+  when:
+    intent: RECON_PROCESS_DISCOVERY
+    confidence_gte: 0.70
+  then:
+    action: SPAWN_DECOY_PROCESSES
+    action_category: MUTATE
+    default_verdict: EXECUTE
+    priority: 50
+  budget:
+    max_per_session: 1
+    cooldown_seconds: 30
+
+- id: RULE-RECON-007
+  severity: MEDIUM
+  rationale: "User discovery detected; synthesize realistic user profile."
+  when:
+    intent: RECON_USER_DISCOVERY
+    confidence_gte: 0.70
+  then:
+    action: SYNTHESIZE_USER_PROFILE
+    action_category: MUTATE
+    default_verdict: EXECUTE
+    priority: 50
+  budget:
+    max_per_session: 1
+    cooldown_seconds: 30
+
+- id: RULE-RECON-008
+  severity: LOW
+  rationale: "File/directory discovery; plant decoy document lures."
+  when:
+    intent: RECON_FILE_DIRECTORY
+    confidence_gte: 0.70
+  then:
+    action: PLANT_DECOY_DOCUMENTS
+    action_category: MUTATE
+    default_verdict: EXECUTE
+    priority: 50
+  budget:
+    max_per_session: 2
+    cooldown_seconds: 20
+
+- id: RULE-RECON-009
+  severity: HIGH
+  rationale: "Security tools inspection; simulate AV presence."
+  when:
+    intent: RECON_SECURITY_TOOLS
+    confidence_gte: 0.75
+  then:
+    action: SIMULATE_AV_PRESENCE
+    action_category: MUTATE
+    default_verdict: EXECUTE
+    priority: 75
+  budget:
+    max_per_session: 1
+    cooldown_seconds: 30
+
+- id: RULE-RECON-010
+  severity: HIGH
+  rationale: "Running services enumeration; spawn decoy service entries."
+  when:
+    intent: RECON_RUNNING_SERVICES
+    confidence_gte: 0.75
+  then:
+    action: SPAWN_DECOY_SERVICES
+    action_category: MUTATE
+    default_verdict: EXECUTE
+    priority: 70
+  budget:
+    max_per_session: 1
+    cooldown_seconds: 30
+
+- id: RULE-RECON-011
+  severity: MEDIUM
+  rationale: "OS version query; observe without active mutation."
+  when:
+    intent: RECON_OS_VERSION
+    confidence_gte: 0.60
+  then:
+    action: NONE
+    action_category: OBSERVE
+    default_verdict: OBSERVE
+    priority: 30
+  budget:
+    max_per_session: 5
+    cooldown_seconds: 10
+
+- id: RULE-RECON-012
+  severity: MEDIUM
+  rationale: "Hostname check; spoof host identity if queried."
+  when:
+    intent: RECON_HOSTNAME
+    confidence_gte: 0.70
+  then:
+    action: SPOOF_HOST_IDENTITY
+    action_category: MUTATE
+    default_verdict: EXECUTE
+    priority: 60
+  budget:
+    max_per_session: 1
+    cooldown_seconds: 30
+
+- id: RULE-RECON-013
+  severity: HIGH
+  rationale: "Domain membership query; spoof domain membership."
+  when:
+    intent: RECON_DOMAIN_MEMBERSHIP
+    confidence_gte: 0.75
+  then:
+    action: SPOOF_DOMAIN_MEMBERSHIP
+    action_category: MUTATE
+    default_verdict: EXECUTE
+    priority: 80
+  budget:
+    max_per_session: 1
+    cooldown_seconds: 30
+
+- id: RULE-RECON-014
+  severity: MEDIUM
+  rationale: "Logged on users discovery; observe."
+  when:
+    intent: RECON_LOGGED_ON_USERS
+    confidence_gte: 0.60
+  then:
+    action: NONE
+    action_category: OBSERVE
+    default_verdict: OBSERVE
+    priority: 40
+  budget:
+    max_per_session: 5
+    cooldown_seconds: 10
+
+- id: RULE-RECON-015
+  severity: HIGH
+  rationale: "Shared folders recon; mount fake network share."
+  when:
+    intent: RECON_SHARED_FOLDERS
+    confidence_gte: 0.75
+  then:
+    action: MOUNT_FAKE_NETWORK_SHARE
+    action_category: MUTATE
+    default_verdict: EXECUTE
+    priority: 80
+  budget:
+    max_per_session: 1
+    cooldown_seconds: 30
+
+- id: RULE-RECON-016
+  severity: MEDIUM
+  rationale: "Printers recon; observe."
+  when:
+    intent: RECON_PRINTERS
+    confidence_gte: 0.60
+  then:
+    action: NONE
+    action_category: OBSERVE
+    default_verdict: OBSERVE
+    priority: 30
+  budget:
+    max_per_session: 5
+    cooldown_seconds: 10
+
+- id: RULE-RECON-017
+  severity: MEDIUM
+  rationale: "Installed software recon; synthesize realistic software inventory."
+  when:
+    intent: RECON_INSTALLED_SOFTWARE
+    confidence_gte: 0.70
+  then:
+    action: SYNTHESIZE_SOFTWARE_INVENTORY
+    action_category: MUTATE
+    default_verdict: EXECUTE
+    priority: 60
+  budget:
+    max_per_session: 1
+    cooldown_seconds: 30
+
+- id: RULE-RECON-018
+  severity: MEDIUM
+  rationale: "Security policy query; spoof security configuration."
+  when:
+    intent: RECON_SECURITY_POLICY
+    confidence_gte: 0.70
+  then:
+    action: SPOOF_SECURITY_CONFIGURATION
+    action_category: MUTATE
+    default_verdict: EXECUTE
+    priority: 60
+  budget:
+    max_per_session: 1
+    cooldown_seconds: 30
+
+- id: RULE-RECON-019
+  severity: MEDIUM
+  rationale: "Firewall config query; spoof firewall state."
+  when:
+    intent: RECON_FIREWALL_CONFIG
+    confidence_gte: 0.70
+  then:
+    action: SPOOF_FIREWALL_STATE
+    action_category: MUTATE
+    default_verdict: EXECUTE
+    priority: 60
+  budget:
+    max_per_session: 1
+    cooldown_seconds: 30
+
+- id: RULE-RECON-020
+  severity: MEDIUM
+  rationale: "Admin privilege check; observe."
+  when:
+    intent: RECON_ADMIN_PRIVILEGE
+    confidence_gte: 0.60
+  then:
+    action: NONE
+    action_category: OBSERVE
+    default_verdict: OBSERVE
+    priority: 40
+  budget:
+    max_per_session: 5
+    cooldown_seconds: 10
+
+- id: RULE-RECON-021
+  severity: MEDIUM
+  rationale: "Timezone query; observe."
+  when:
+    intent: RECON_TIMEZONE
+    confidence_gte: 0.60
+  then:
+    action: NONE
+    action_category: OBSERVE
+    default_verdict: OBSERVE
+    priority: 30
+  budget:
+    max_per_session: 5
+    cooldown_seconds: 10
+
+- id: RULE-RECON-022
+  severity: LOW
+  rationale: "Language and locale query; observe."
+  when:
+    intent: RECON_LANGUAGE_LOCALE
+    confidence_gte: 0.60
+  then:
+    action: NONE
+    action_category: OBSERVE
+    default_verdict: OBSERVE
+    priority: 20
+  budget:
+    max_per_session: 5
+    cooldown_seconds: 10
+
+- id: RULE-RECON-023
+  severity: MEDIUM
+  rationale: "Network topology query; synthesize network topology."
+  when:
+    intent: RECON_NETWORK_TOPOLOGY
+    confidence_gte: 0.70
+  then:
+    action: SYNTHESIZE_NETWORK_TOPOLOGY
+    action_category: MUTATE
+    default_verdict: EXECUTE
+    priority: 60
+  budget:
+    max_per_session: 1
+    cooldown_seconds: 30
+
+# Application Reconnaissance Rules
+- id: RULE-RECON-024
+  severity: MEDIUM
+  rationale: "Office discovery; synthesize MS Office profile."
+  when:
+    intent: RECON_OFFICE
+    confidence_gte: 0.70
+  then:
+    action: SYNTHESIZE_OFFICE_PROFILE
+    action_category: MUTATE
+    default_verdict: EXECUTE
+    priority: 65
+  budget:
+    max_per_session: 1
+    cooldown_seconds: 30
+
+- id: RULE-RECON-025
+  severity: MEDIUM
+  rationale: "Browser discovery; synthesize browser profile."
+  when:
+    intent: RECON_BROWSER
+    confidence_gte: 0.70
+  then:
+    action: SYNTHESIZE_BROWSER_PROFILE
+    action_category: MUTATE
+    default_verdict: EXECUTE
+    priority: 65
+  budget:
+    max_per_session: 1
+    cooldown_seconds: 30
+
+- id: RULE-RECON-026
+  severity: MEDIUM
+  rationale: "Email client discovery; synthesize email profile."
+  when:
+    intent: RECON_EMAIL_CLIENT
+    confidence_gte: 0.70
+  then:
+    action: SYNTHESIZE_EMAIL_PROFILE
+    action_category: MUTATE
+    default_verdict: EXECUTE
+    priority: 65
+  budget:
+    max_per_session: 1
+    cooldown_seconds: 30
+
+- id: RULE-RECON-027
+  severity: HIGH
+  rationale: "Database discovery; synthesize decoy database."
+  when:
+    intent: RECON_DATABASE
+    confidence_gte: 0.75
+  then:
+    action: SYNTHESIZE_DATABASE_CLIENT
+    action_category: MUTATE
+    default_verdict: EXECUTE
+    priority: 75
+  budget:
+    max_per_session: 1
+    cooldown_seconds: 30
+
+- id: RULE-RECON-028
+  severity: HIGH
+  rationale: "VPN client discovery; synthesize VPN profile."
+  when:
+    intent: RECON_VPN_CLIENT
+    confidence_gte: 0.75
+  then:
+    action: SYNTHESIZE_VPN_PROFILE
+    action_category: MUTATE
+    default_verdict: EXECUTE
+    priority: 75
+  budget:
+    max_per_session: 1
+    cooldown_seconds: 30
+
+- id: RULE-RECON-029
+  severity: HIGH
+  rationale: "Remote access tools discovery; synthesize RDP targets."
+  when:
+    intent: RECON_REMOTE_ACCESS
+    confidence_gte: 0.75
+  then:
+    action: SYNTHESIZE_RDP_TARGETS
+    action_category: MUTATE
+    default_verdict: EXECUTE
+    priority: 75
+  budget:
+    max_per_session: 1
+    cooldown_seconds: 30
+
+- id: RULE-RECON-030
+  severity: HIGH
+  rationale: "Security software discovery; hide analysis artifacts."
+  when:
+    intent: RECON_SECURITY_SOFTWARE
+    confidence_gte: 0.75
+  then:
+    action: HIDE_ANALYSIS_ARTIFACTS
+    action_category: MUTATE
+    default_verdict: EXECUTE
+    priority: 80
+  budget:
+    max_per_session: 1
+    cooldown_seconds: 30
+
+- id: RULE-RECON-031
+  severity: MEDIUM
+  rationale: "Developer tools discovery; synthesize developer environment."
+  when:
+    intent: RECON_DEVELOPER_TOOLS
+    confidence_gte: 0.70
+  then:
+    action: SYNTHESIZE_DEVELOPER_ENVIRONMENT
+    action_category: MUTATE
+    default_verdict: EXECUTE
+    priority: 65
+  budget:
+    max_per_session: 1
+    cooldown_seconds: 30

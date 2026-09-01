@@ -1,0 +1,180 @@
+# Lateral Movement Policy Rules
+- id: RULE-LATERAL-001
+  severity: HIGH
+  rationale: "SMB share access; mount fake network share."
+  when:
+    intent: LATERAL_SMB_SHARE_ACCESS
+    confidence_gte: 0.75
+  then:
+    action: MOUNT_FAKE_NETWORK_SHARE
+    action_category: MUTATE
+    default_verdict: EXECUTE
+    priority: 80
+  budget:
+    max_per_session: 1
+    cooldown_seconds: 30
+
+- id: RULE-LATERAL-002
+  severity: HIGH
+  rationale: "Admin share enumeration; mount fake network share."
+  when:
+    intent: LATERAL_ADMIN_SHARE_ENUM
+    confidence_gte: 0.75
+  then:
+    action: MOUNT_FAKE_NETWORK_SHARE
+    action_category: MUTATE
+    default_verdict: EXECUTE
+    priority: 80
+  budget:
+    max_per_session: 1
+    cooldown_seconds: 30
+
+- id: RULE-LATERAL-003
+  severity: HIGH
+  rationale: "RDP discovery; synthesize RDP targets."
+  when:
+    intent: LATERAL_RDP_DISCOVERY
+    confidence_gte: 0.75
+  then:
+    action: SYNTHESIZE_RDP_TARGETS
+    action_category: MUTATE
+    default_verdict: EXECUTE
+    priority: 80
+  budget:
+    max_per_session: 1
+    cooldown_seconds: 30
+
+- id: RULE-LATERAL-004
+  severity: CRITICAL
+  rationale: "RDP connection attempt; synthesize RDP targets."
+  when:
+    intent: LATERAL_RDP_CONNECTION
+    confidence_gte: 0.85
+  then:
+    action: SYNTHESIZE_RDP_TARGETS
+    action_category: MUTATE
+    default_verdict: EXECUTE
+    priority: 95
+  budget:
+    max_per_session: 1
+    cooldown_seconds: 30
+
+- id: RULE-LATERAL-005
+  severity: HIGH
+  rationale: "WinRM discovery; synthesize remote hosts."
+  when:
+    intent: LATERAL_WINRM_DISCOVERY
+    confidence_gte: 0.75
+  then:
+    action: SYNTHESIZE_REMOTE_HOSTS
+    action_category: MUTATE
+    default_verdict: EXECUTE
+    priority: 80
+  budget:
+    max_per_session: 1
+    cooldown_seconds: 30
+
+- id: RULE-LATERAL-006
+  severity: CRITICAL
+  rationale: "WinRM remote execution; observe."
+  when:
+    intent: LATERAL_WINRM_EXECUTION
+    confidence_gte: 0.85
+  then:
+    action: NONE
+    action_category: OBSERVE
+    default_verdict: OBSERVE
+    priority: 90
+  budget:
+    max_per_session: 5
+    cooldown_seconds: 10
+
+- id: RULE-LATERAL-007
+  severity: CRITICAL
+  rationale: "WMI remote execution; observe."
+  when:
+    intent: LATERAL_WMI_REMOTE_EXEC
+    confidence_gte: 0.85
+  then:
+    action: NONE
+    action_category: OBSERVE
+    default_verdict: OBSERVE
+    priority: 90
+  budget:
+    max_per_session: 5
+    cooldown_seconds: 10
+
+- id: RULE-LATERAL-008
+  severity: HIGH
+  rationale: "Remote service creation; observe."
+  when:
+    intent: LATERAL_REMOTE_SERVICE
+    confidence_gte: 0.80
+  then:
+    action: NONE
+    action_category: OBSERVE
+    default_verdict: OBSERVE
+    priority: 80
+  budget:
+    max_per_session: 5
+    cooldown_seconds: 10
+
+- id: RULE-LATERAL-009
+  severity: CRITICAL
+  rationale: "Domain trust discovery; synthesize domain topology."
+  when:
+    intent: LATERAL_DOMAIN_TRUST_DISCOVERY
+    confidence_gte: 0.85
+  then:
+    action: SYNTHESIZE_DOMAIN_TOPOLOGY
+    action_category: MUTATE
+    default_verdict: EXECUTE
+    priority: 95
+  budget:
+    max_per_session: 1
+    cooldown_seconds: 30
+
+- id: RULE-LATERAL-010
+  severity: CRITICAL
+  rationale: "DC discovery; spawn fake DC artifacts."
+  when:
+    intent: LATERAL_DC_DISCOVERY
+    confidence_gte: 0.85
+  then:
+    action: SPAWN_FAKE_DC_ARTIFACTS
+    action_category: MUTATE
+    default_verdict: EXECUTE
+    priority: 95
+  budget:
+    max_per_session: 1
+    cooldown_seconds: 30
+
+- id: RULE-LATERAL-011
+  severity: HIGH
+  rationale: "Host discovery ping sweep; synthesize network topology."
+  when:
+    intent: LATERAL_HOST_DISCOVERY
+    confidence_gte: 0.75
+  then:
+    action: SYNTHESIZE_NETWORK_TOPOLOGY
+    action_category: MUTATE
+    default_verdict: EXECUTE
+    priority: 80
+  budget:
+    max_per_session: 1
+    cooldown_seconds: 30
+
+- id: RULE-LATERAL-012
+  severity: HIGH
+  rationale: "SMB enumeration; mount fake network share."
+  when:
+    intent: LATERAL_SMB_ENUM
+    confidence_gte: 0.75
+  then:
+    action: MOUNT_FAKE_NETWORK_SHARE
+    action_category: MUTATE
+    default_verdict: EXECUTE
+    priority: 80
+  budget:
+    max_per_session: 1
+    cooldown_seconds: 30
