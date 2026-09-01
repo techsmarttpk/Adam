@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}ADAM — Research Report {{ session.session_id if session else 'Demo' }}{% endblock %}
+{% block title %}ADAM — Threat Intelligence & Malware Analysis Report — {{ report.session_id }}{% endblock %}
 
 {% block nav_dashboard_class %}active{% endblock %}
 
@@ -8,193 +8,303 @@
 <span class="breadcrumb-separator">></span>
 <a href="/dashboard">Sessions</a>
 <span class="breadcrumb-separator">></span>
-<a href="/dashboard/session/{{ session.session_id if session else 'sess_demo_1' }}"><code>{{ session.session_id if session else 'sess_demo_1' }}</code></a>
+<a href="/dashboard/sessions/{{ report.session_id }}"><code>{{ report.session_id }}</code></a>
 <span class="breadcrumb-separator">></span>
-<span class="breadcrumb-active">Research Report</span>
+<span class="breadcrumb-active">Malware Threat Report</span>
 {% endblock %}
 
 {% block header_actions %}
-  <div style="display: flex; gap: 8px;">
-
-
+  <div style="display: flex; gap: 10px; align-items: center;">
+    <a href="/dashboard/sessions/{{ report.session_id }}/report/pdf" target="_blank" class="btn btn-primary btn-sm" id="btn-download-pdf" style="background: #0284c7; border-color: #0284c7; font-weight: 700;">
+      <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+      Download Vector PDF
+    </a>
     <button class="btn btn-secondary btn-sm" onclick="window.print()" id="btn-print-report">
       <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"></path></svg>
-      Print / PDF
-    </button>
-    <button class="btn btn-primary btn-sm" id="btn-export-json">
-      <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
-      Export JSON
+      Print View
     </button>
   </div>
 {% endblock %}
 
 {% block content %}
-<div style="display: flex; flex-direction: column; gap: 32px;">
+<div class="threat-report-container" style="display: flex; flex-direction: column; gap: 24px; max-width: 1280px; margin: 0 auto;">
 
-  <!-- REPORT TITLE CARD -->
-  <section class="card" style="border-left: 5px solid var(--accent-primary);">
-    <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+  <!-- 1. COVER & REPORT HEADER CARD -->
+  <section class="card" style="border-top: 4px solid var(--accent-primary); background: linear-gradient(180deg, rgba(15, 23, 42, 0.9) 0%, rgba(7, 10, 18, 0.95) 100%);">
+    <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 16px;">
       <div>
-        <h1 style="font-size: 2rem; font-weight: 800; margin-bottom: 8px;">Malware Analysis & Deception Yield Report</h1>
-        <p style="color: var(--text-secondary); font-size: 0.95rem;">
-          Experiment Group: <strong>{{ session.experiment_id if session else 'exp_lockbit_variant_7' }}</strong> | 
-          Arm: <strong>{{ session.arm if session else 'TREATMENT' }}</strong>
+        <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 6px;">
+          <span class="badge badge-sm" style="background: #39ff14; color: #000; font-weight: 800; padding: 2px 8px;">ADAM AMTD FORENSICS</span>
+          <span style="color: var(--text-muted); font-size: 0.8rem; font-family: var(--font-mono);">SESSION: {{ report.session_id }}</span>
+        </div>
+        <h1 style="font-size: 1.85rem; font-weight: 800; color: #fff; margin-bottom: 6px; letter-spacing: -0.5px;">
+          Malware Threat Intelligence & Adaptive Deception Report
+        </h1>
+        <p style="color: var(--text-secondary); font-size: 0.9rem;">
+          Sample: <strong style="color: #fff;">{{ report.sample_filename }}</strong> | 
+          Experiment: <code>{{ report.experiment_id }}</code> | 
+          Arm: <span class="badge badge-{{ report.arm.lower() }}">{{ report.arm }}</span>
         </p>
       </div>
-      <div style="text-align: right;">
-        <span class="badge badge-completed" style="font-size: 0.85rem; padding: 6px 14px;">COMPLETED</span>
-        <p style="font-size: 0.75rem; color: var(--text-muted); margin-top: 8px;">
-          Generated on: {{ session.ended_at if session else '2026-07-21T14:35:07Z' }}
-        </p>
+
+      <!-- Threat Level Gauge -->
+      <div style="background: rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; padding: 14px 20px; text-align: center; min-width: 170px;">
+        <div style="font-size: 0.7rem; color: var(--text-muted); text-transform: uppercase; font-weight: 700; margin-bottom: 4px;">Threat Risk Level</div>
+        <div style="font-size: 1.6rem; font-weight: 800; color: {% if report.risk_score.level == 'CRITICAL' %}#ff003c{% elif report.risk_score.level == 'HIGH' %}#ff8c00{% elif report.risk_score.level == 'MEDIUM' %}#ffea00{% else %}#39ff14{% endif %}; text-shadow: 0 0 10px rgba(0,0,0,0.5);">
+          {{ report.risk_score.level }}
+        </div>
+        <div style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 2px;">Score: <strong style="color: #fff;">{{ report.risk_score.score }}</strong> / 100</div>
+      </div>
+    </div>
+
+    <!-- Metadata Grid -->
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-top: 20px; padding-top: 16px; border-top: 1px solid rgba(255,255,255,0.08); font-size: 0.8rem;">
+      <div>
+        <span style="color: var(--text-muted); display: block; font-size: 0.7rem; text-transform: uppercase;">SHA-256 Hash</span>
+        <code style="color: #38bdf8; font-size: 0.75rem;">{{ report.sample_sha256[:20] }}...{{ report.sample_sha256[-12:] }}</code>
+      </div>
+      <div>
+        <span style="color: var(--text-muted); display: block; font-size: 0.7rem; text-transform: uppercase;">VM Profile</span>
+        <span style="color: #fff;">{{ report.vm_profile }}</span>
+      </div>
+      <div>
+        <span style="color: var(--text-muted); display: block; font-size: 0.7rem; text-transform: uppercase;">Network Isolation</span>
+        <span style="color: #fff;">{{ report.network_mode }}</span>
+      </div>
+      <div>
+        <span style="color: var(--text-muted); display: block; font-size: 0.7rem; text-transform: uppercase;">Deception Engine</span>
+        <span style="color: #39ff14; font-weight: 700;">{{ "ACTIVE (Autonomous AMTD)" if report.deception_enabled else "Baseline Observe" }}</span>
+      </div>
+      <div>
+        <span style="color: var(--text-muted); display: block; font-size: 0.7rem; text-transform: uppercase;">Analysis Timestamp</span>
+        <span style="color: #fff;">{{ report.started_at[:19].replace('T', ' ') }}</span>
       </div>
     </div>
   </section>
 
-  <!-- BEHAVIORAL YIELD COMPARISON (PRIMARY RESEARCH SECTION) -->
+  <!-- 2. EXECUTIVE SUMMARY & KPI CARDS -->
   <section class="card">
     <div class="card-header">
-      <h2 class="card-title">Behavioral Yield Assessment</h2>
-      <span class="badge badge-treatment">Control vs. Treatment Metric</span>
+      <h2 class="card-title" style="font-size: 1.15rem; color: #fff;">1. Executive Summary & KPIs</h2>
     </div>
-    
-    <p style="color: var(--text-secondary); margin-bottom: 24px;">
-      Behavioral Yield measures the effectiveness of deception by attributing subsequent malware behaviors to active mutation causal windows. If deception triggers new recon or attack paths that were suppressed in the control run, the yield represents these newly observed events.
-    </p>
 
-    <div class="yield-grid">
-      <!-- CONTROL SIDE -->
-      <div class="card" style="background-color: hsla(270, 70%, 65%, 0.03); border-color: rgba(162, 89, 255, 0.2);">
-        <div style="text-align: center;">
-          <span class="badge badge-control" style="margin-bottom: 12px;">Control Run (Standard)</span>
-          <div class="metric-val" style="color: var(--status-control);">0</div>
-          <div class="metric-label" style="margin-top: 8px;">Semantic Events Observed</div>
-        </div>
+    <!-- 8x KPI Grid -->
+    <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px;">
+      <div style="background: rgba(255,255,255,0.02); border: 1px solid var(--border-color); border-radius: 6px; padding: 12px; text-align: center;">
+        <div style="font-size: 0.7rem; color: var(--text-muted); text-transform: uppercase; font-weight: 700;">Total Raw Events</div>
+        <div style="font-size: 1.45rem; font-weight: 800; color: #fff; margin-top: 4px;">{{ "{:,}".format(report.kpis.total_raw_events) }}</div>
+      </div>
+      <div style="background: rgba(255,255,255,0.02); border: 1px solid var(--border-color); border-radius: 6px; padding: 12px; text-align: center;">
+        <div style="font-size: 0.7rem; color: var(--text-muted); text-transform: uppercase; font-weight: 700;">Semantic Intents</div>
+        <div style="font-size: 1.45rem; font-weight: 800; color: #39ff14; margin-top: 4px;">{{ report.kpis.total_semantic_events }}</div>
+      </div>
+      <div style="background: rgba(255, 0, 60, 0.05); border: 1px solid rgba(255,0,60,0.3); border-radius: 6px; padding: 12px; text-align: center;">
+        <div style="font-size: 0.7rem; color: #ff003c; text-transform: uppercase; font-weight: 700;">Critical Attacks</div>
+        <div style="font-size: 1.45rem; font-weight: 800; color: #ff003c; margin-top: 4px;">{{ report.kpis.critical_events }}</div>
+      </div>
+      <div style="background: rgba(255, 140, 0, 0.05); border: 1px solid rgba(255,140,0,0.3); border-radius: 6px; padding: 12px; text-align: center;">
+        <div style="font-size: 0.7rem; color: #ff8c00; text-transform: uppercase; font-weight: 700;">High Severity</div>
+        <div style="font-size: 1.45rem; font-weight: 800; color: #ff8c00; margin-top: 4px;">{{ report.kpis.high_events }}</div>
+      </div>
+      <div style="background: rgba(255,255,255,0.02); border: 1px solid var(--border-color); border-radius: 6px; padding: 12px; text-align: center;">
+        <div style="font-size: 0.7rem; color: var(--text-muted); text-transform: uppercase; font-weight: 700;">Policy Decisions</div>
+        <div style="font-size: 1.45rem; font-weight: 800; color: #fff; margin-top: 4px;">{{ report.kpis.total_decisions }}</div>
+      </div>
+      <div style="background: rgba(57, 255, 20, 0.05); border: 1px solid rgba(57,255,20,0.3); border-radius: 6px; padding: 12px; text-align: center;">
+        <div style="font-size: 0.7rem; color: #39ff14; text-transform: uppercase; font-weight: 700;">Mutations Applied</div>
+        <div style="font-size: 1.45rem; font-weight: 800; color: #39ff14; margin-top: 4px;">{{ report.kpis.total_mutations_applied }}</div>
+      </div>
+      <div style="background: rgba(2, 132, 199, 0.05); border: 1px solid rgba(2,132,199,0.3); border-radius: 6px; padding: 12px; text-align: center;">
+        <div style="font-size: 0.7rem; color: #38bdf8; text-transform: uppercase; font-weight: 700;">Post-Mutation Yield</div>
+        <div style="font-size: 1.45rem; font-weight: 800; color: #38bdf8; margin-top: 4px;">+{{ report.kpis.post_mutation_events }}</div>
+      </div>
+      <div style="background: rgba(2, 132, 199, 0.05); border: 1px solid rgba(2,132,199,0.3); border-radius: 6px; padding: 12px; text-align: center;">
+        <div style="font-size: 0.7rem; color: #38bdf8; text-transform: uppercase; font-weight: 700;">Behavioral Gain</div>
+        <div style="font-size: 1.45rem; font-weight: 800; color: #38bdf8; margin-top: 4px;">+{{ report.kpis.behavioral_yield_percentage }}%</div>
+      </div>
+    </div>
+
+    <!-- Key Findings Summary Narrative -->
+    <div style="background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.08); border-radius: 6px; padding: 16px;">
+      <h3 style="font-size: 0.95rem; color: #39ff14; margin-bottom: 8px; font-weight: 700;">Key Threat Intelligence Findings</h3>
+      <ul style="padding-left: 18px; font-size: 0.85rem; line-height: 1.6; color: #e2e8f0;">
+        {% for finding in report.key_findings %}
+          <li>{{ finding }}</li>
+        {% endfor %}
+      </ul>
+    </div>
+  </section>
+
+  <!-- 3. ATTACK SEVERITY & CATEGORY MATRIX -->
+  <div style="display: grid; grid-template-columns: 360px 1fr; gap: 24px;">
+    
+    <!-- Severity Breakdown -->
+    <section class="card">
+      <div class="card-header">
+        <h2 class="card-title" style="font-size: 1.05rem; color: #fff;">2. Threat Severity Breakdown</h2>
       </div>
       
-      <!-- ATTRIBUTION FLOW -->
-      <div class="yield-divider">
-        <span class="yield-arrow">➔</span>
-        <span>+{{ session.metrics.semantic_events_post_mutation if session else 21 }} events</span>
-      </div>
+      <div style="display: flex; flex-direction: column; gap: 14px; margin-top: 10px; font-size: 0.85rem;">
+        <div>
+          <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+            <span style="color: #ff003c; font-weight: 700;">CRITICAL</span>
+            <strong style="color: #fff;">{{ report.severity_distribution.critical }} ({{ report.severity_distribution.critical_pct }}%)</strong>
+          </div>
+          <div style="background: rgba(255,255,255,0.1); height: 8px; border-radius: 4px; overflow: hidden;">
+            <div style="width: {{ report.severity_distribution.critical_pct }}%; background: #ff003c; height: 100%;"></div>
+          </div>
+        </div>
 
-      <!-- TREATMENT SIDE -->
-      <div class="card" style="background-color: hsla(30, 90%, 60%, 0.03); border-color: rgba(243, 156, 18, 0.2);">
-        <div style="text-align: center;">
-          <span class="badge badge-treatment" style="margin-bottom: 12px;">Treatment Run (Deceived)</span>
-          <div class="metric-val" style="color: var(--status-treatment);">{{ session.metrics.semantic_events if session else 47 }}</div>
-          <div class="metric-label" style="margin-top: 8px;">Semantic Events (Total)</div>
+        <div>
+          <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+            <span style="color: #ff8c00; font-weight: 700;">HIGH</span>
+            <strong style="color: #fff;">{{ report.severity_distribution.high }} ({{ report.severity_distribution.high_pct }}%)</strong>
+          </div>
+          <div style="background: rgba(255,255,255,0.1); height: 8px; border-radius: 4px; overflow: hidden;">
+            <div style="width: {{ report.severity_distribution.high_pct }}%; background: #ff8c00; height: 100%;"></div>
+          </div>
+        </div>
+
+        <div>
+          <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+            <span style="color: #ffea00; font-weight: 700;">MEDIUM</span>
+            <strong style="color: #fff;">{{ report.severity_distribution.medium }} ({{ report.severity_distribution.medium_pct }}%)</strong>
+          </div>
+          <div style="background: rgba(255,255,255,0.1); height: 8px; border-radius: 4px; overflow: hidden;">
+            <div style="width: {{ report.severity_distribution.medium_pct }}%; background: #ffea00; height: 100%;"></div>
+          </div>
+        </div>
+
+        <div>
+          <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+            <span style="color: #39ff14; font-weight: 700;">LOW</span>
+            <strong style="color: #fff;">{{ report.severity_distribution.low }} ({{ report.severity_distribution.low_pct }}%)</strong>
+          </div>
+          <div style="background: rgba(255,255,255,0.1); height: 8px; border-radius: 4px; overflow: hidden;">
+            <div style="width: {{ report.severity_distribution.low_pct }}%; background: #39ff14; height: 100%;"></div>
+          </div>
         </div>
       </div>
-    </div>
+    </section>
 
-    <!-- COMPARISON TABLE -->
-    <div class="table-responsive">
-      <table class="table yield-compare-table">
-        <thead>
-          <tr>
-            <th>Observed Intent Category</th>
-            <th>Control Arm Frequency</th>
-            <th>Treatment Arm Frequency</th>
-            <th>Attributable to Mutation?</th>
-            <th>Traceability (Correlation ID)</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% if yield_comparisons %}
-            {% for row in yield_comparisons %}
+    <!-- Severity × Category Matrix Heatmap -->
+    <section class="card">
+      <div class="card-header">
+        <h2 class="card-title" style="font-size: 1.05rem; color: #fff;">Severity &times; Category Heatmap Matrix</h2>
+      </div>
+
+      <div class="table-responsive">
+        <table class="table" style="font-size: 0.8rem;">
+          <thead>
             <tr>
-              <td><strong>{{ row.intent }}</strong></td>
-              <td><code>{{ row.control_count }}</code></td>
-              <td><code>{{ row.treatment_count }}</code></td>
+              <th>Attack Category</th>
+              <th style="color: #ff003c; text-align: center;">CRIT</th>
+              <th style="color: #ff8c00; text-align: center;">HIGH</th>
+              <th style="color: #ffea00; text-align: center;">MED</th>
+              <th style="color: #39ff14; text-align: center;">LOW</th>
+              <th style="text-align: center;">Total</th>
+              <th>Share</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for cat in report.category_summaries %}
+            <tr>
+              <td><strong>{{ cat.category }}</strong></td>
+              <td style="text-align: center; color: {% if cat.critical > 0 %}#ff003c; font-weight: 700;{% else %}var(--text-muted);{% endif %}">{{ cat.critical if cat.critical > 0 else '-' }}</td>
+              <td style="text-align: center; color: {% if cat.high > 0 %}#ff8c00; font-weight: 700;{% else %}var(--text-muted);{% endif %}">{{ cat.high if cat.high > 0 else '-' }}</td>
+              <td style="text-align: center; color: {% if cat.medium > 0 %}#ffea00; font-weight: 700;{% else %}var(--text-muted);{% endif %}">{{ cat.medium if cat.medium > 0 else '-' }}</td>
+              <td style="text-align: center; color: {% if cat.low > 0 %}#39ff14; font-weight: 700;{% else %}var(--text-muted);{% endif %}">{{ cat.low if cat.low > 0 else '-' }}</td>
+              <td style="text-align: center;"><strong>{{ cat.count }}</strong></td>
               <td>
-                {% if row.attributed %}
-                  <span class="badge badge-ready">Yes (100%)</span>
-                {% else %}
-                  <span class="badge badge-cold">No</span>
-                {% endif %}
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <div style="background: rgba(255,255,255,0.1); height: 6px; border-radius: 3px; width: 60px; overflow: hidden;">
+                    <div style="width: {{ cat.percentage }}%; background: #38bdf8; height: 100%;"></div>
+                  </div>
+                  <span>{{ cat.percentage }}%</span>
+                </div>
               </td>
-              <td><code>{{ row.correlation_id }}</code></td>
             </tr>
             {% endfor %}
-          {% else %}
-            <tr>
-              <td colspan="5" style="text-align: center; color: var(--text-muted); padding: 18px;">No semantic intents available to calculate yield delta for this session.</td>
-            </tr>
-          {% endif %}
-        </tbody>
-      </table>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+
+  <!-- 4. ATTACK MILESTONE TIMELINE & PROGRESSION -->
+  <section class="card">
+    <div class="card-header">
+      <h2 class="card-title" style="font-size: 1.15rem; color: #fff;">3. Attack Progression & Milestone Timeline</h2>
+    </div>
+
+    <!-- Campaign flow ribbon -->
+    {% if report.campaign_phases %}
+    <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 20px; padding: 10px 14px; background: rgba(0,0,0,0.3); border-radius: 6px; font-size: 0.8rem;">
+      <span style="color: var(--text-muted); font-weight: 700; text-transform: uppercase;">Campaign Progression:</span>
+      {% for p in report.campaign_phases %}
+        <span class="badge" style="background: rgba(2, 132, 199, 0.15); color: #38bdf8; border: 1px solid #0284c7;">
+          {{ p.phase }} ({{ p.count }})
+        </span>
+        {% if not loop.last %}<span style="color: #38bdf8;">&rarr;</span>{% endif %}
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    <!-- Milestone Timeline -->
+    <div style="display: flex; flex-direction: column; gap: 10px;">
+      {% for m in report.timeline %}
+      <div style="display: grid; grid-template-columns: 80px 140px 1fr 90px; gap: 12px; align-items: center; background: rgba(255,255,255,0.015); border-left: 3px solid {% if m.severity == 'CRITICAL' %}#ff003c{% elif m.severity == 'HIGH' %}#ff8c00{% elif m.severity == 'MEDIUM' %}#ffea00{% else %}#39ff14{% endif %}; padding: 10px 14px; border-radius: 0 4px 4px 0;">
+        <code style="color: var(--text-muted); font-size: 0.75rem;">{{ m.time_offset }}</code>
+        <strong style="color: #fff; font-size: 0.82rem;">{{ m.phase }}</strong>
+        <div style="font-size: 0.82rem;">
+          <strong style="color: #39ff14;">{{ m.title }}</strong> &mdash; <span style="color: var(--text-secondary);">{{ m.description }}</span>
+          {% if m.attck %}<span class="badge badge-sm" style="margin-left: 6px; font-size: 0.7rem;">{{ m.attck }}</span>{% endif %}
+        </div>
+        <div style="text-align: right;">
+          <span class="badge badge-sev-{{ m.severity.lower() }}" style="font-size: 0.7rem; padding: 2px 6px;">{{ m.severity }}</span>
+        </div>
+      </div>
+      {% endfor %}
     </div>
   </section>
 
-  <!-- MITRE ATT&CK COVERAGE -->
+  <!-- 5. SEMANTIC INTENT CATALOG -->
   <section class="card">
     <div class="card-header">
-      <h2 class="card-title">MITRE ATT&CK Alignment</h2>
-      <span class="badge badge-ready">Tactic Coverage</span>
+      <h2 class="card-title" style="font-size: 1.15rem; color: #fff;">4. Semantic Intent Catalog & MITRE ATT&CK Mapping</h2>
     </div>
-    
-    <p style="color: var(--text-secondary); margin-bottom: 20px;">
-      Techniques dynamically triggered and observed during execution. Highlights indicate tactics unlocked due to active deception feedback loop.
-    </p>
 
-    <div class="attack-matrix">
-      <div class="attack-column">
-        <div class="attack-column-header">Reconnaissance</div>
-        <div class="attack-cell active">T1592<br>Gather Host Info</div>
-        <div class="attack-cell">T1589<br>Gather Identity</div>
-      </div>
-      
-      <div class="attack-column">
-        <div class="attack-column-header">Discovery</div>
-        <div class="attack-cell active">T1018<br>System Discovery</div>
-        <div class="attack-cell active">T1082<br>System Info Discovery</div>
-        <div class="attack-cell">T1135<br>Network Share Discovery</div>
-      </div>
-
-      <div class="attack-column">
-        <div class="attack-column-header">Credential Access</div>
-        <div class="attack-cell active">T1003<br>OS Credential Dumping</div>
-        <div class="attack-cell">T1555<br>Credentials from Store</div>
-      </div>
-
-      <div class="attack-column">
-        <div class="attack-column-header">Execution</div>
-        <div class="attack-cell active">T1059<br>Command/Scripting</div>
-        <div class="attack-cell">T1204<br>User Execution</div>
-      </div>
-    </div>
-  </section>
-
-  <!-- REPORT DETAIL SECTIONS (MUTATIONS & DECISION TIMELINE) -->
-  <section class="card">
-    <div class="card-header">
-      <h2 class="card-title">Deception Ledger Summary</h2>
-    </div>
     <div class="table-responsive">
-      <table class="table">
+      <table class="table" style="font-size: 0.82rem;">
         <thead>
           <tr>
-            <th>Applied Timestamp</th>
-            <th>Deception Action</th>
-            <th>Target Modifications</th>
-            <th>Plausibility</th>
+            <th>Detected Semantic Intent</th>
+            <th>Category</th>
+            <th>Severity</th>
+            <th>Confidence</th>
+            <th>MITRE ATT&CK</th>
+            <th>Detector Engine</th>
+            <th>Occurrences</th>
+            <th>Causal Attribution</th>
           </tr>
         </thead>
         <tbody>
-          {% for m in mutations %}
+          {% for item in report.semantic_intents %}
           <tr>
-            <td><code>{{ m.applied_at }}</code></td>
-            <td><strong>{{ m.primitive }}</strong></td>
+            <td><code>{{ item.intent }}</code></td>
+            <td>{{ item.category }}</td>
+            <td><span class="badge badge-sev-{{ item.severity.lower() }}" style="font-size: 0.7rem; padding: 2px 6px;">{{ item.severity }}</span></td>
+            <td><strong>{{ "{:.0%}".format(item.confidence) }}</strong></td>
+            <td><code>{{ item.attck_technique }}</code> <small style="color: var(--text-muted);">({{ item.attck_tactic }})</small></td>
+            <td><small style="color: var(--text-muted);">{{ item.detector }}</small></td>
+            <td><strong>{{ item.occurrences }}</strong></td>
             <td>
-              {% for ch in m.changes %}
-                <code>[{{ ch.kind }}]</code> {{ ch.operation }} {{ ch.target }}<br>
-              {% endfor %}
+              {% if item.caused_by_mutation %}
+                <span class="badge" style="background: rgba(57,255,20,0.15); color: #39ff14; border: 1px solid #39ff14;">{{ item.caused_by_mutation[:14] }}...</span>
+              {% else %}
+                <span style="color: var(--text-muted);">-</span>
+              {% endif %}
             </td>
-            <td><code>{{ m.plausibility_score }}</code> - {{ m.plausibility_notes }}</td>
-          </tr>
-          {% else %}
-          <tr>
-            <td colspan="4" style="text-align: center; color: var(--text-muted); padding: 18px;">No deception mutations applied in this session.</td>
           </tr>
           {% endfor %}
         </tbody>
@@ -202,10 +312,150 @@
     </div>
   </section>
 
-  <!-- USER-DEFINED INTEGRATION FOOTER -->
-  {% block custom_report_footer %}
-  <!-- Customizable slot for custom findings or extra paper sections -->
-  {% endblock %}
+  <!-- 6. ADAPTIVE POLICY & DECEPTION MUTATIONS -->
+  <section class="card">
+    <div class="card-header">
+      <h2 class="card-title" style="font-size: 1.15rem; color: #fff;">5. Adaptive Policy Decisions & Deception Activity</h2>
+    </div>
+
+    <!-- Policy Summary Grid -->
+    <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px; font-size: 0.82rem;">
+      <div style="background: rgba(0,0,0,0.3); padding: 10px; border-radius: 6px; border: 1px solid var(--border-color);">
+        <span style="color: var(--text-muted); display: block; font-size: 0.7rem; text-transform: uppercase;">Evaluated Decisions</span>
+        <strong style="font-size: 1.1rem; color: #fff;">{{ report.policy_analysis.total_evaluated }}</strong>
+      </div>
+      <div style="background: rgba(0,0,0,0.3); padding: 10px; border-radius: 6px; border: 1px solid var(--border-color);">
+        <span style="color: var(--text-muted); display: block; font-size: 0.7rem; text-transform: uppercase;">Executed Mutations</span>
+        <strong style="font-size: 1.1rem; color: #39ff14;">{{ report.policy_analysis.executed }}</strong>
+      </div>
+      <div style="background: rgba(0,0,0,0.3); padding: 10px; border-radius: 6px; border: 1px solid var(--border-color);">
+        <span style="color: var(--text-muted); display: block; font-size: 0.7rem; text-transform: uppercase;">Suppressed / Budget</span>
+        <strong style="font-size: 1.1rem; color: #ffea00;">{{ report.policy_analysis.suppressed_budget }}</strong>
+      </div>
+      <div style="background: rgba(0,0,0,0.3); padding: 10px; border-radius: 6px; border: 1px solid var(--border-color);">
+        <span style="color: var(--text-muted); display: block; font-size: 0.7rem; text-transform: uppercase;">Mutation Rate</span>
+        <strong style="font-size: 1.1rem; color: #38bdf8;">{{ "{:.0%}".format(report.policy_analysis.mutation_rate) }}</strong>
+      </div>
+    </div>
+
+    <!-- Applied Mutations Details -->
+    <h3 style="font-size: 0.95rem; color: #39ff14; margin-bottom: 12px; font-weight: 700;">Applied Deception Primitives & Synthetic Artifacts</h3>
+    
+    {% if report.mutations %}
+    <div style="display: flex; flex-direction: column; gap: 14px;">
+      {% for m in report.mutations %}
+      <div style="background: rgba(0,0,0,0.35); border: 1px solid rgba(57,255,20,0.25); border-radius: 6px; padding: 14px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span class="badge badge-treatment" style="font-size: 0.75rem;">MUTATION APPLIED</span>
+            <strong style="color: #fff; font-size: 0.95rem;">{{ m.primitive }}</strong>
+            <code style="color: var(--text-muted); font-size: 0.75rem;">{{ m.mutation_id }}</code>
+          </div>
+          <div style="font-size: 0.8rem; color: var(--text-secondary);">
+            Latency: <strong style="color: #fff;">{{ m.latency_ms | round(1) }}ms</strong> | 
+            Plausibility: <strong style="color: #39ff14;">{{ m.plausibility_score }}</strong>
+          </div>
+        </div>
+
+        <p style="color: #cbd5e1; font-size: 0.85rem; margin-bottom: 10px;">
+          <strong>Synthetic Environment Summary:</strong> {{ m.explanation.get('summary', 'Deception primitive executed in sandbox.') }}
+        </p>
+
+        <!-- Changes Table -->
+        <div style="background: rgba(0,0,0,0.5); border-radius: 4px; padding: 8px 12px; font-family: var(--font-mono); font-size: 0.75rem;">
+          <div style="color: var(--text-muted); text-transform: uppercase; font-size: 0.65rem; margin-bottom: 4px;">Host Environment Modifications:</div>
+          {% for ch in m.changes %}
+            <div style="color: #38bdf8;">• [{{ ch.kind }}] {{ ch.operation }} <code>{{ ch.target }}</code> {% if ch.value %}= "{{ ch.value }}"{% endif %}</div>
+          {% endfor %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p style="color: var(--text-muted); font-size: 0.85rem;">No active deception mutations triggered during this session run.</p>
+    {% endif %}
+  </section>
+
+  <!-- 7. BEHAVIORAL YIELD & RESEARCH IMPACT -->
+  <section class="card">
+    <div class="card-header">
+      <h2 class="card-title" style="font-size: 1.15rem; color: #fff;">6. Behavioral Yield & AMTD Research Assessment</h2>
+    </div>
+
+    <p style="color: var(--text-secondary); font-size: 0.85rem; margin-bottom: 16px;">
+      Behavioral Yield measures the gain in forensic intelligence and expanded attack execution achieved via adaptive deception.
+      When malware triggers mutations, subsequent attacker behaviors causally linked to synthetic lures represent newly unlocked visibility.
+    </p>
+
+    <div class="table-responsive">
+      <table class="table" style="font-size: 0.82rem;">
+        <thead>
+          <tr>
+            <th>Observed Intent / Forensic Dimension</th>
+            <th>Control Arm (Baseline)</th>
+            <th>Treatment Arm (Deceived)</th>
+            <th>Behavioral Gain (&Delta;)</th>
+            <th>Causal Attribution</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for y in report.yield_comparisons %}
+          <tr>
+            <td><code>{{ y.intent_or_dimension }}</code></td>
+            <td>{{ y.control_count }}</td>
+            <td><strong>{{ y.treatment_count }}</strong></td>
+            <td>
+              <strong style="color: {% if y.delta > 0 %}#39ff14{% elif y.delta < 0 %}#ff003c{% else %}var(--text-muted){% endif %};">
+                {{ "+" if y.delta > 0 else "" }}{{ y.delta }}
+              </strong>
+            </td>
+            <td>
+              {% if y.attributed_to_mutation %}
+                <span class="badge badge-treatment" style="font-size: 0.7rem;">★ CAUSALLY ATTRIBUTED</span>
+              {% else %}
+                <span style="color: var(--text-muted);">Baseline Execution</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- 8. FORENSICS & IOCS -->
+  <section class="card">
+    <div class="card-header">
+      <h2 class="card-title" style="font-size: 1.15rem; color: #fff;">7. Forensic Indicators of Compromise (IOCs)</h2>
+    </div>
+
+    <div class="table-responsive">
+      <table class="table" style="font-size: 0.82rem;">
+        <thead>
+          <tr>
+            <th>Type</th>
+            <th>Indicator Value</th>
+            <th>Confidence</th>
+            <th>Forensic Context & Attribution</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for ioc in report.iocs %}
+          <tr>
+            <td><span class="badge badge-sm" style="background: rgba(2, 132, 199, 0.2); color: #38bdf8;">{{ ioc.ioc_type }}</span></td>
+            <td><code>{{ ioc.value }}</code></td>
+            <td><strong>{{ "{:.0%}".format(ioc.confidence) }}</strong></td>
+            <td style="color: var(--text-secondary);">{{ ioc.context }}</td>
+          </tr>
+          {% else %}
+          <tr>
+            <td colspan="4" style="text-align: center; color: var(--text-muted);">No external forensic IOCs extracted during this run.</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
 
 </div>
 {% endblock %}

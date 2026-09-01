@@ -138,6 +138,10 @@ async def get_session_detail(request: Request, session_id: str):
         }
     )
 
+from fastapi.responses import HTMLResponse, Response
+from adam.reporting.model import ReportDataAggregator
+from adam.reporting.pdf_generator import MalwareReportPDFGenerator
+
 @router.get("/dashboard/session/{session_id}/report", response_class=HTMLResponse)
 @router.get("/dashboard/sessions/{session_id}/report", response_class=HTMLResponse)
 async def get_session_report(request: Request, session_id: str):
@@ -148,27 +152,86 @@ async def get_session_report(request: Request, session_id: str):
     events = await deps.event_repo.get_semantic_events(session_id)
     decisions = await deps.decision_repo.get_decisions(session_id)
     mutations = await deps.mutation_repo.get_mutations(session_id)
+    raw_events = await deps.event_repo.get_raw_events(session_id)
     
-    # Calculate yield comparison mapping
-    yield_comparisons = []
-    for ev in events:
-        yield_comparisons.append({
-            "intent": ev.intent,
-            "control_count": 0 if session.arm == "TREATMENT" else 1,
-            "treatment_count": 1 if session.arm == "TREATMENT" else 0,
-            "attributed": bool(ev.caused_by_mutation),
-            "correlation_id": ev.correlation_id
-        })
-        
+    # Check for paired control session in the same experiment
+    paired_control_session = None
+    paired_control_events = None
+    if session.experiment_id:
+        conn = await deps.db_conn.connect()
+        async with conn.execute(
+            "SELECT session_id FROM sessions WHERE experiment_id = ? AND arm = 'CONTROL' AND session_id != ? LIMIT 1",
+            (session.experiment_id, session.session_id)
+        ) as cursor:
+            ctrl_row = await cursor.fetchone()
+            if ctrl_row:
+                paired_control_session = await deps.session_repo.get(ctrl_row[0])
+                if paired_control_session:
+                    paired_control_events = await deps.event_repo.get_semantic_events(ctrl_row[0])
+
+    report_model = ReportDataAggregator.build(
+        session=session,
+        raw_events=raw_events,
+        semantic_events=events,
+        decisions=decisions,
+        mutations=mutations,
+        paired_control_session=paired_control_session,
+        paired_control_events=paired_control_events
+    )
+
     return templates.TemplateResponse(
         request=request,
         name="report.html",
         context={
-            "session": session,
-            "events": events,
-            "decisions": decisions,
-            "mutations": mutations,
-            "yield_comparisons": yield_comparisons
+            "report": report_model,
+            "session": session
+        }
+    )
+
+@router.get("/dashboard/session/{session_id}/report/pdf")
+@router.get("/dashboard/sessions/{session_id}/report/pdf")
+@router.get("/api/v1/sessions/{session_id}/report/pdf")
+async def get_session_report_pdf(session_id: str):
+    session = await deps.session_repo.get(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    events = await deps.event_repo.get_semantic_events(session_id)
+    decisions = await deps.decision_repo.get_decisions(session_id)
+    mutations = await deps.mutation_repo.get_mutations(session_id)
+    raw_events = await deps.event_repo.get_raw_events(session_id)
+
+    paired_control_session = None
+    paired_control_events = None
+    if session.experiment_id:
+        conn = await deps.db_conn.connect()
+        async with conn.execute(
+            "SELECT session_id FROM sessions WHERE experiment_id = ? AND arm = 'CONTROL' AND session_id != ? LIMIT 1",
+            (session.experiment_id, session.session_id)
+        ) as cursor:
+            ctrl_row = await cursor.fetchone()
+            if ctrl_row:
+                paired_control_session = await deps.session_repo.get(ctrl_row[0])
+                if paired_control_session:
+                    paired_control_events = await deps.event_repo.get_semantic_events(ctrl_row[0])
+
+    report_model = ReportDataAggregator.build(
+        session=session,
+        raw_events=raw_events,
+        semantic_events=events,
+        decisions=decisions,
+        mutations=mutations,
+        paired_control_session=paired_control_session,
+        paired_control_events=paired_control_events
+    )
+
+    pdf_bytes = MalwareReportPDFGenerator.generate_pdf(report_model)
+
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'inline; filename="ADAM_Threat_Report_{session_id}.pdf"'
         }
     )
 

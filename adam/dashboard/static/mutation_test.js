@@ -9,6 +9,7 @@ let isStreamPaused = false;
 let currentSessionId = "";
 let currentManifest = null;
 let loadedMutations = new Map();
+let causalEventsList = [];
 
 document.addEventListener('DOMContentLoaded', async () => {
   const sessionIdInput = document.getElementById('input-session-id');
@@ -180,6 +181,8 @@ function initActionButtons() {
             details: `[TEST TRIGGER DISPATCHED] Executing '${data.command_name}' (${data.severity})`
           };
           appendConsoleLog(cmdEvt);
+          causalEventsList.push(cmdEvt);
+          updateCausalTimeline(causalEventsList);
 
           // Fetch evaluation result after closed loop completes
           setTimeout(() => pollTestResults(currentSessionId), 600);
@@ -235,6 +238,41 @@ function updateResultCard(res) {
   document.getElementById('res-latency').textContent = res.observed?.latency_ms ? `${Math.round(res.observed.latency_ms)} ms` : '--';
 }
 
+function updateCausalTimeline(events) {
+  const container = document.getElementById('causal-timeline-container');
+  if (!container) return;
+
+  container.innerHTML = '';
+  events.forEach((evt, idx) => {
+    const step = document.createElement('div');
+    step.style.background = 'rgba(0,0,0,0.5)';
+    step.style.border = '1px solid rgba(57,255,20,0.2)';
+    step.style.padding = '8px 12px';
+    step.style.borderRadius = '4px';
+    step.style.minWidth = '140px';
+    step.style.display = 'flex';
+    step.style.flexDirection = 'column';
+    step.style.gap = '2px';
+
+    const timeStr = evt.timestamp ? evt.timestamp.substring(11, 19) : '--:--:--';
+    step.innerHTML = `
+      <div style="font-size: 0.65rem; color: var(--text-muted);">${timeStr}</div>
+      <div style="font-weight: 700; color: #39ff14;">${evt.event_type || 'STAGE'}</div>
+      <div style="font-size: 0.72rem; color: #fff;">${evt.id || evt.intent || evt.action || evt.primitive || ''}</div>
+    `;
+    container.appendChild(step);
+
+    if (idx < events.length - 1) {
+      const arrow = document.createElement('div');
+      arrow.style.color = '#39ff14';
+      arrow.style.display = 'flex';
+      arrow.style.alignItems = 'center';
+      arrow.innerHTML = '&rarr;';
+      container.appendChild(arrow);
+    }
+  });
+}
+
 function initConsoleControls() {
   const pauseBtn = document.getElementById('btn-pause-stream');
   const clearBtn = document.getElementById('btn-clear-console');
@@ -250,6 +288,8 @@ function initConsoleControls() {
   if (clearBtn) {
     clearBtn.addEventListener('click', () => {
       document.getElementById('live-console-feed').innerHTML = '';
+      causalEventsList = [];
+      updateCausalTimeline(causalEventsList);
     });
   }
 }
@@ -273,6 +313,8 @@ function connectSseStream(sessionId) {
     try {
       const data = JSON.parse(event.data);
       appendConsoleLog(data);
+      causalEventsList.push(data);
+      updateCausalTimeline(causalEventsList);
 
       if (data.event_type === 'MUTATION') {
         openMutationInspector(data);
@@ -416,5 +458,26 @@ function openMutationInspector(mut) {
     tbody.appendChild(tr);
   });
 
+  // Update Transformation Before/After Card
+  updateTransformationState(mut);
+
   document.getElementById('mutation-inspector-card').scrollIntoView({ behavior: 'smooth' });
+}
+
+function updateTransformationState(mut) {
+  const label = document.getElementById('trans-mutation-label');
+  if (label) label.textContent = mut.primitive || 'ADAM MUTATION';
+
+  const expl = mut.explanation || {};
+  const artifacts = expl.artifacts || {};
+
+  const domainEl = document.getElementById('trans-after-domain');
+  const dcsEl = document.getElementById('trans-after-dcs');
+  const sharesEl = document.getElementById('trans-after-shares');
+  const artEl = document.getElementById('trans-after-artifacts');
+
+  if (domainEl) domainEl.textContent = artifacts.domain || artifacts["Primary Domain"] || 'CORP.LOCAL';
+  if (dcsEl) dcsEl.textContent = artifacts.domain_controllers ? artifacts.domain_controllers.join(', ') : (artifacts["Domain Controllers"] || 'DC01.CORP.LOCAL (10.0.0.10)');
+  if (sharesEl) sharesEl.textContent = artifacts.network_shares ? artifacts.network_shares.join(', ') : (artifacts["Decoy Shares"] || '\\\\127.0.0.1\\Financials');
+  if (artEl) artEl.textContent = expl.summary || `${mut.changes ? mut.changes.length : 1} dynamic environment modifications applied`;
 }

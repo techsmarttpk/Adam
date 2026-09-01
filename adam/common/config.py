@@ -70,6 +70,23 @@ class Settings(BaseSettings):
     db: DbSettings = Field(default_factory=DbSettings)
     logging: LoggingSettings = Field(default_factory=LoggingSettings)
 
+CONFIG_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+class HttpGuestSettings(BaseModel):
+    hostfwd_port_host: int = 8443
+    hostfwd_port_guest: int = 8443
+    connect_timeout_s: float = 10.0
+    read_timeout_s: float = 30.0
+
+class GuestToolsSettings(BaseModel):
+    sysmon_enabled: bool = True
+    procmon_enabled: bool = True
+    tshark_enabled: bool = True
+    tshark_path: str = "C:\\Program Files\\Wireshark\\tshark.exe"
+
+def get_settings(config_path: Optional[str] = None) -> Settings:
+    return load_settings(config_path)
+
 def load_settings(config_path: Optional[str] = None) -> Settings:
     paths_to_try = []
     if config_path:
@@ -92,3 +109,4 @@ def load_settings(config_path: Optional[str] = None) -> Settings:
             break
             
     return Settings.model_validate(config_data)
+

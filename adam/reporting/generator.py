@@ -24,7 +24,7 @@ class ReportGenerator:
         self.mutation_repo = mutation_repo
 
     async def generate_session_report(self, session_id: str) -> Dict[str, Any]:
-        """Generates a complete structured report for a single analysis session."""
+        """Generates a complete structured report and PDF for a single analysis session."""
         session = await self.session_repo.get(session_id)
         if not session:
             return {"error": f"Session {session_id} not found"}
@@ -32,32 +32,47 @@ class ReportGenerator:
         events = await self.event_repo.get_semantic_events(session_id)
         decisions = await self.decision_repo.get_decisions(session_id)
         mutations = await self.mutation_repo.get_mutations(session_id)
+        raw_events = await self.event_repo.get_raw_events(session_id)
 
-        event_list = [e.model_dump(mode="json") for e in events]
-        decision_list = [d.model_dump(mode="json") for d in decisions]
-        mutation_list = [m.model_dump(mode="json") for m in mutations]
+        from adam.reporting.model import ReportDataAggregator
+        from adam.reporting.pdf_generator import MalwareReportPDFGenerator
 
-        report = {
-            "session_id": session_id,
-            "experiment_id": session.experiment_id,
-            "arm": session.arm.value,
-            "status": session.status.value,
-            "metrics": session.metrics.model_dump(),
-            "sample": session.sample.model_dump(),
-            "events": event_list,
-            "decisions": decision_list,
-            "mutations": mutation_list,
-            "error": session.error
-        }
-        
+        report_model = ReportDataAggregator.build(
+            session=session,
+            raw_events=raw_events,
+            semantic_events=events,
+            decisions=decisions,
+            mutations=mutations
+        )
+
         session_dir = os.path.join("artifacts", session_id)
         os.makedirs(session_dir, exist_ok=True)
+        
+        # Save JSON
         report_path = os.path.join(session_dir, "report.json")
         with open(report_path, "w") as f:
-            json.dump(report, f, indent=2)
-            
+            json.dump({
+                "session_id": session_id,
+                "risk_score": report_model.risk_score.score,
+                "risk_level": report_model.risk_score.level,
+                "kpis": report_model.kpis.__dict__,
+                "severity_distribution": report_model.severity_distribution.__dict__,
+                "top_intents": report_model.top_intents,
+                "key_findings": report_model.key_findings
+            }, f, indent=2)
+
+        # Save PDF
+        try:
+            pdf_bytes = MalwareReportPDFGenerator.generate_pdf(report_model)
+            pdf_path = os.path.join(session_dir, "threat_report.pdf")
+            with open(pdf_path, "wb") as f:
+                f.write(pdf_bytes)
+            logger.info(f"Saved session report PDF to {pdf_path}")
+        except Exception as e:
+            logger.error(f"Failed to generate session PDF: {e}")
+
         logger.info(f"Saved session report JSON to {report_path}")
-        return report
+        return {"session_id": session_id, "status": "generated", "report_path": report_path}
 
     async def generate_comparison_report(self, experiment_id: str) -> str:
         """Compares CONTROL vs TREATMENT sessions for the same experiment to calculate behavioral yield."""

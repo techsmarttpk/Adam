@@ -26,15 +26,15 @@
 {% endblock %}
 
 {% block content %}
-<div class="mutation-console-grid" style="display: grid; grid-template-columns: 380px minmax(0, 1fr); gap: 24px; align-items: start;">
+<div class="mutation-console-grid" style="display: grid; grid-template-columns: 330px minmax(0, 1fr); gap: 18px; align-items: start;">
 
   <!-- LEFT PANEL: TEST CONTROLLER & COMMAND SELECTOR -->
-  <aside class="sidebar-panel" style="display: flex; flex-direction: column; gap: 18px; width: 100%;">
+  <aside class="sidebar-panel" style="display: flex; flex-direction: column; gap: 14px; width: 100%;">
     
     <!-- TEST SESSION INJECTION CARD -->
     <div class="card">
       <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
-        <h3 class="card-title" style="font-size: 1rem; color: #39ff14;">1. Test Harness Session</h3>
+        <h3 class="card-title" style="font-size: 0.95rem; color: #39ff14;">1. Test Harness Session</h3>
         <span id="harness-injected-badge" class="badge" style="background: rgba(255, 0, 60, 0.2); color: #ff003c; border: 1px solid #ff003c;">Not Injected</span>
       </div>
 
@@ -169,6 +169,54 @@
         <div class="console-welcome" style="color: var(--text-muted); text-align: center; padding: 40px 0;">
           [ ADAM MUTATION TEST CONSOLE READY ]<br>
           Select a test session and click 'Inject Executable' to stream real-time events.
+        </div>
+      </div>
+    </div>
+
+    <!-- CAUSAL CHAIN TIMELINE VIEW -->
+    <div class="card" id="causal-chain-card" style="border-top: 3px solid #00e5ff;">
+      <div class="card-header">
+        <h3 class="card-title" style="font-size: 1.05rem; color: #00e5ff;">Causal Attribution Chain Timeline</h3>
+      </div>
+      <div id="causal-timeline-container" style="display: flex; gap: 12px; overflow-x: auto; padding: 10px 0; font-size: 0.8rem;">
+        <div style="color: var(--text-muted); padding: 10px;">Execute a test stimulus or generate activity to visualize the end-to-end causal propagation graph.</div>
+      </div>
+    </div>
+
+    <!-- BEFORE → MUTATION → AFTER TRANSFORMATION VIEW -->
+    <div class="card" id="transformation-card" style="border-top: 3px solid #ffaa00;">
+      <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+        <h3 class="card-title" style="font-size: 1.05rem; color: #ffaa00;">Environment Transformation (Before &rarr; Mutation &rarr; After)</h3>
+        <span class="badge" style="background: rgba(255, 170, 0, 0.15); color: #ffaa00; border: 1px solid #ffaa00;">STATE DELTA</span>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 1fr auto 1fr; gap: 14px; align-items: center; font-size: 0.82rem;">
+        <!-- BEFORE STATE -->
+        <div style="background: rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; padding: 12px;">
+          <h4 style="color: var(--text-secondary); margin-bottom: 8px; font-size: 0.85rem; text-transform: uppercase;">1. Before Mutation</h4>
+          <div id="trans-before-content" style="font-family: var(--font-mono); color: #bbb; display: flex; flex-direction: column; gap: 4px;">
+            <div>Domain: <span style="color:#fff;">WORKGROUP</span></div>
+            <div>DCs: <span style="color:#fff;">None</span></div>
+            <div>Shares: <span style="color:#fff;">None</span></div>
+            <div>Decoy Keys: <span style="color:#fff;">None</span></div>
+          </div>
+        </div>
+
+        <!-- MUTATION CONNECTOR -->
+        <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; color: #39ff14; font-weight: 700; text-align: center;">
+          <div style="font-size: 1.5rem;">&rarr;</div>
+          <div id="trans-mutation-label" style="font-size: 0.7rem; font-family: var(--font-mono); color: #ff0077;">ADAM MUTATION</div>
+        </div>
+
+        <!-- AFTER STATE -->
+        <div style="background: rgba(57,255,20,0.03); border: 1px solid rgba(57,255,20,0.3); border-radius: 6px; padding: 12px;">
+          <h4 style="color: #39ff14; margin-bottom: 8px; font-size: 0.85rem; text-transform: uppercase;">2. After Mutation (Synthesized)</h4>
+          <div id="trans-after-content" style="font-family: var(--font-mono); color: #fff; display: flex; flex-direction: column; gap: 4px;">
+            <div>Domain: <span style="color:#39ff14;" id="trans-after-domain">CORP.LOCAL</span></div>
+            <div>DCs: <span style="color:#39ff14;" id="trans-after-dcs">DC01.CORP.LOCAL (10.0.0.10)</span></div>
+            <div>Shares: <span style="color:#39ff14;" id="trans-after-shares">\\\\127.0.0.1\\Financials</span></div>
+            <div>Artifacts: <span style="color:#39ff14;" id="trans-after-artifacts">SYSVOL + Decoy Registry</span></div>
+          </div>
         </div>
       </div>
     </div>
