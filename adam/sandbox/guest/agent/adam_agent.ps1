@@ -184,22 +184,39 @@ $powershell.AddScript({
                     $plausibilityRationale = "Synthetic Bitcoin/Electrum decoy wallet structure generated."
                 }
                 elseif ($action -eq "INJECT_FAKE_BROWSER_CREDS") {
-                    $userProfile = $env:USERPROFILE
-                    $chromeDir = Join-Path $userProfile "AppData\Local\Google\Chrome\User Data\Default"
-                    if (-not (Test-Path $chromeDir)) { New-Item -Path $chromeDir -ItemType Directory -Force | Out-Null }
-                    $loginDataPath = Join-Path $chromeDir "Login Data"
-                    "SQLite format 3`0... [Synthetic Encrypted Vault Data]" | Out-File -FilePath $loginDataPath -Force
-                    $changes += @{ "kind" = "FILE"; "target" = $loginDataPath; "operation" = "CREATE" }
+                    # Write to all user profiles and Public documents to guarantee visibility
+                    $profiles = @($env:USERPROFILE)
+                    $allUsers = Get-ChildItem "C:\Users" -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -notmatch "All Users|Default User|Public" }
+                    foreach ($u in $allUsers) {
+                        $profiles += $u.FullName
+                    }
+                    $profiles = $profiles | Select-Object -Unique
+
+                    foreach ($p in $profiles) {
+                        try {
+                            $chromeDir = Join-Path $p "AppData\Local\Google\Chrome\User Data\Default"
+                            if (-not (Test-Path $chromeDir)) { New-Item -Path $chromeDir -ItemType Directory -Force | Out-Null }
+                            $loginDataPath = Join-Path $chromeDir "Login Data"
+                            "SQLite format 3`0... [Synthetic Encrypted Vault Data]" | Out-File -FilePath $loginDataPath -Force
+                            $changes += @{ "kind" = "FILE"; "target" = $loginDataPath; "operation" = "CREATE" }
+                            
+                            $docDir = Join-Path $p "Documents"
+                            if (-not (Test-Path $docDir)) { New-Item -Path $docDir -ItemType Directory -Force | Out-Null }
+                            $docCredsPath = Join-Path $docDir "Chrome_Passwords_Backup.txt"
+                            "URL: https://corp.internal/login`nUsername: admin@corp.local`nPassword: DecoyPassword2026!" | Out-File -FilePath $docCredsPath -Force
+                            $changes += @{ "kind" = "FILE"; "target" = $docCredsPath; "operation" = "CREATE" }
+                        } catch {}
+                    }
                     
-                    # Also write easily visible decoy credentials backup to Documents
-                    $docDir = Join-Path $userProfile "Documents"
-                    if (-not (Test-Path $docDir)) { New-Item -Path $docDir -ItemType Directory -Force | Out-Null }
-                    $docCredsPath = Join-Path $docDir "Chrome_Passwords_Backup.txt"
-                    "URL: https://corp.internal/login`nUsername: admin@corp.local`nPassword: DecoyPassword2026!" | Out-File -FilePath $docCredsPath -Force
-                    $changes += @{ "kind" = "FILE"; "target" = $docCredsPath; "operation" = "CREATE" }
+                    # Also write to Public Documents as guaranteed fallback
+                    try {
+                        $pubDocs = "C:\Users\Public\Documents"
+                        if (-not (Test-Path $pubDocs)) { New-Item -Path $pubDocs -ItemType Directory -Force | Out-Null }
+                        "URL: https://corp.internal/login`nUsername: admin@corp.local`nPassword: DecoyPassword2026!" | Out-File -FilePath (Join-Path $pubDocs "Chrome_Passwords_Backup.txt") -Force
+                    } catch {}
                     
                     $plausibilityScore = 0.90
-                    $plausibilityRationale = "Synthetic SQLite credential database deployed to Chrome profile and passwords backup placed in Documents."
+                    $plausibilityRationale = "Synthetic SQLite credential database deployed to Chrome profile and passwords backup placed in Documents across user profiles."
                 }
                 elseif ($action -eq "MOUNT_FAKE_NETWORK_SHARE") {
                     $fakeShareDir = "C:\Corporate_Shares\Financials"
@@ -907,22 +924,39 @@ while ($listener.IsListening) {
                     $plausibilityRationale = "Synthetic Bitcoin/Electrum decoy wallet structure generated."
                 }
                 elseif ($action -eq "INJECT_FAKE_BROWSER_CREDS") {
-                    $userProfile = $env:USERPROFILE
-                    $chromeDir = Join-Path $userProfile "AppData\Local\Google\Chrome\User Data\Default"
-                    if (-not (Test-Path $chromeDir)) { New-Item -Path $chromeDir -ItemType Directory -Force | Out-Null }
-                    $loginDataPath = Join-Path $chromeDir "Login Data"
-                    "SQLite format 3`0... [Synthetic Encrypted Vault Data]" | Out-File -FilePath $loginDataPath -Force
-                    $changes += @{ "kind" = "FILE"; "target" = $loginDataPath; "operation" = "CREATE" }
+                    # Write to all user profiles and Public documents to guarantee visibility
+                    $profiles = @($env:USERPROFILE)
+                    $allUsers = Get-ChildItem "C:\Users" -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -notmatch "All Users|Default User|Public" }
+                    foreach ($u in $allUsers) {
+                        $profiles += $u.FullName
+                    }
+                    $profiles = $profiles | Select-Object -Unique
+
+                    foreach ($p in $profiles) {
+                        try {
+                            $chromeDir = Join-Path $p "AppData\Local\Google\Chrome\User Data\Default"
+                            if (-not (Test-Path $chromeDir)) { New-Item -Path $chromeDir -ItemType Directory -Force | Out-Null }
+                            $loginDataPath = Join-Path $chromeDir "Login Data"
+                            "SQLite format 3`0... [Synthetic Encrypted Vault Data]" | Out-File -FilePath $loginDataPath -Force
+                            $changes += @{ "kind" = "FILE"; "target" = $loginDataPath; "operation" = "CREATE" }
+                            
+                            $docDir = Join-Path $p "Documents"
+                            if (-not (Test-Path $docDir)) { New-Item -Path $docDir -ItemType Directory -Force | Out-Null }
+                            $docCredsPath = Join-Path $docDir "Chrome_Passwords_Backup.txt"
+                            "URL: https://corp.internal/login`nUsername: admin@corp.local`nPassword: DecoyPassword2026!" | Out-File -FilePath $docCredsPath -Force
+                            $changes += @{ "kind" = "FILE"; "target" = $docCredsPath; "operation" = "CREATE" }
+                        } catch {}
+                    }
                     
-                    # Also write easily visible decoy credentials backup to Documents
-                    $docDir = Join-Path $userProfile "Documents"
-                    if (-not (Test-Path $docDir)) { New-Item -Path $docDir -ItemType Directory -Force | Out-Null }
-                    $docCredsPath = Join-Path $docDir "Chrome_Passwords_Backup.txt"
-                    "URL: https://corp.internal/login`nUsername: admin@corp.local`nPassword: DecoyPassword2026!" | Out-File -FilePath $docCredsPath -Force
-                    $changes += @{ "kind" = "FILE"; "target" = $docCredsPath; "operation" = "CREATE" }
+                    # Also write to Public Documents as guaranteed fallback
+                    try {
+                        $pubDocs = "C:\Users\Public\Documents"
+                        if (-not (Test-Path $pubDocs)) { New-Item -Path $pubDocs -ItemType Directory -Force | Out-Null }
+                        "URL: https://corp.internal/login`nUsername: admin@corp.local`nPassword: DecoyPassword2026!" | Out-File -FilePath (Join-Path $pubDocs "Chrome_Passwords_Backup.txt") -Force
+                    } catch {}
                     
                     $plausibilityScore = 0.90
-                    $plausibilityRationale = "Synthetic SQLite credential database deployed to Chrome profile and passwords backup placed in Documents."
+                    $plausibilityRationale = "Synthetic SQLite credential database deployed to Chrome profile and passwords backup placed in Documents across user profiles."
                 }
                 elseif ($action -eq "MOUNT_FAKE_NETWORK_SHARE") {
                     $fakeShareDir = "C:\Corporate_Shares\Financials"
