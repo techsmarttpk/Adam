@@ -395,6 +395,49 @@ Plausibility Score: <strong>{{ m.plausibility_score }}</strong> ("{{ m.plausibil
 
     // Initial render
     applyFilterState();
+
+    // Connect to Live SSE stream for this active session
+    const sessionId = "{{ session.session_id }}";
+    if (sessionId && window.EventSource) {
+      const streamUrl = `/api/v1/mutation-tests/${sessionId}/stream`;
+      const source = new EventSource(streamUrl);
+
+      source.onmessage = function(event) {
+        try {
+          const item = JSON.parse(event.data);
+          const type = (item.event_type || 'RAW').toLowerCase();
+          const row = document.createElement('div');
+          row.className = `feed-row ${type}`;
+          if (item.correlation_id) row.dataset.corrId = item.correlation_id;
+
+          let metaHtml = `<span>${item.event_type} | ID: ${item.id || '-'}</span><span>${item.timestamp || new Date().toISOString()}</span>`;
+          let contentHtml = '';
+
+          if (type === 'raw') {
+            contentHtml = `<strong>[${item.source || 'SYSMON'}]</strong> ${item.category}: ${item.details || ''}`;
+          } else if (type === 'semantic') {
+            contentHtml = `INTENT: <strong>${item.intent}</strong> (Conf: ${item.confidence || 1.0}, Sev: ${item.severity || 'HIGH'})<br>Detector: ${item.detector || '-'}`;
+          } else if (type === 'policy') {
+            contentHtml = `DECISION: Rule <strong>${item.rule_id || '-'}</strong> &rarr; Action <strong>${item.action || '-'}</strong> [${item.verdict || 'EXECUTE'}]<br>Rationale: ${item.rationale || ''}`;
+          } else if (type === 'mutation') {
+            contentHtml = `MUTATION: <strong>${item.primitive || '-'}</strong> [${item.status || 'APPLIED'}] (Latency: ${Math.round(item.latency_ms || 0)}ms)<br>Plausibility: ${item.plausibility_score || 0.9}`;
+          } else {
+            contentHtml = item.details || JSON.stringify(item);
+          }
+
+          row.innerHTML = `<div class="feed-row-meta">${metaHtml}</div><div class="feed-row-content">${contentHtml}</div>`;
+          
+          // Remove empty placeholder if present
+          const emptyRow = feedBox.querySelector('.feed-row.system');
+          if (emptyRow) emptyRow.remove();
+
+          feedBox.insertBefore(row, feedBox.firstChild);
+          applyFilterState();
+        } catch (err) {
+          console.debug("SSE feed parse note:", err);
+        }
+      };
+    }
   }
 
   if (document.readyState === 'loading') {
