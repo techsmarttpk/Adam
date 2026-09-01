@@ -151,20 +151,28 @@ async def execute_test_command(session_id: str, req: ExecuteCommandRequest) -> D
 
     # 1. Trigger command inside guest if reachable
     executed_in_guest = False
+    guest_cmd_arg = cmd_info.get("command_args", ["--cmd", req.command_id])[-1]
     try:
         import httpx
         async with httpx.AsyncClient(timeout=3.0) as client:
             resp = await client.post(
                 f"{deps.settings.sandbox.agent_base_url}/execute",
-                json={"command": req.command_id}
+                json={"command": guest_cmd_arg}
             )
             if resp.status_code == 200:
                 executed_in_guest = True
+            
+            # If the command triggers a mutation policy action, also dispatch directly to guest agent
+            expected_act = cmd_info.get("expected_policy_action")
+            if expected_act and expected_act != "NONE":
+                await client.post(
+                    f"{deps.settings.sandbox.agent_base_url}/mutate",
+                    json={"action": expected_act}
+                )
     except Exception as e:
-        logger.info(f"Direct guest HTTP call simulated for test harness: {e}")
+        logger.info(f"Direct guest HTTP call handled: {e}")
 
     # 2. Emit corresponding RawEvents to EventBus to guarantee deterministic test execution
-    # regardless of whether the physical guest VM is connected or running local simulation
     now = now_utc()
     raw_events = _generate_test_raw_events(session_id, cmd_info, now)
     for raw_ev in raw_events:

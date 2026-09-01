@@ -191,8 +191,15 @@ $powershell.AddScript({
                     "SQLite format 3`0... [Synthetic Encrypted Vault Data]" | Out-File -FilePath $loginDataPath -Force
                     $changes += @{ "kind" = "FILE"; "target" = $loginDataPath; "operation" = "CREATE" }
                     
+                    # Also write easily visible decoy credentials backup to Documents
+                    $docDir = Join-Path $userProfile "Documents"
+                    if (-not (Test-Path $docDir)) { New-Item -Path $docDir -ItemType Directory -Force | Out-Null }
+                    $docCredsPath = Join-Path $docDir "Chrome_Passwords_Backup.txt"
+                    "URL: https://corp.internal/login`nUsername: admin@corp.local`nPassword: DecoyPassword2026!" | Out-File -FilePath $docCredsPath -Force
+                    $changes += @{ "kind" = "FILE"; "target" = $docCredsPath; "operation" = "CREATE" }
+                    
                     $plausibilityScore = 0.90
-                    $plausibilityRationale = "Synthetic SQLite credential database deployed to Chrome profile directory."
+                    $plausibilityRationale = "Synthetic SQLite credential database deployed to Chrome profile and passwords backup placed in Documents."
                 }
                 elseif ($action -eq "MOUNT_FAKE_NETWORK_SHARE") {
                     $fakeShareDir = "C:\Corporate_Shares\Financials"
@@ -907,8 +914,15 @@ while ($listener.IsListening) {
                     "SQLite format 3`0... [Synthetic Encrypted Vault Data]" | Out-File -FilePath $loginDataPath -Force
                     $changes += @{ "kind" = "FILE"; "target" = $loginDataPath; "operation" = "CREATE" }
                     
+                    # Also write easily visible decoy credentials backup to Documents
+                    $docDir = Join-Path $userProfile "Documents"
+                    if (-not (Test-Path $docDir)) { New-Item -Path $docDir -ItemType Directory -Force | Out-Null }
+                    $docCredsPath = Join-Path $docDir "Chrome_Passwords_Backup.txt"
+                    "URL: https://corp.internal/login`nUsername: admin@corp.local`nPassword: DecoyPassword2026!" | Out-File -FilePath $docCredsPath -Force
+                    $changes += @{ "kind" = "FILE"; "target" = $docCredsPath; "operation" = "CREATE" }
+                    
                     $plausibilityScore = 0.90
-                    $plausibilityRationale = "Synthetic SQLite credential database deployed to Chrome profile directory."
+                    $plausibilityRationale = "Synthetic SQLite credential database deployed to Chrome profile and passwords backup placed in Documents."
                 }
                 elseif ($action -eq "MOUNT_FAKE_NETWORK_SHARE") {
                     $fakeShareDir = "C:\Corporate_Shares\Financials"
